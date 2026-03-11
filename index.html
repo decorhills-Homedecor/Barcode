@@ -9,6 +9,7 @@
 <title>Fraimage Inventory Scanner</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d0f0f'/><rect x='6' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='41' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='6' y='36' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='41' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='36' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/></svg>">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;600;700;900&display=swap');
 :root{--bg:#0d0f0f;--surface:#161a1a;--panel:#1e2424;--border:#2e3838;--amber:#f5a623;--amber-dim:#a86f0f;--green:#22c55e;--red:#ef4444;--blue:#38bdf8;--purple:#a78bfa;--text:#e8eaea;--muted:#6b7a7a;--mono:'Share Tech Mono',monospace;--sans:'Barlow',sans-serif;--r:10px}
@@ -470,7 +471,9 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
         </div>
         <p style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7">
           Files save to <strong style="color:var(--green)">My Drive → Fraimage Scans</strong> folder.<br>
-          The folder is created automatically on first upload.
+          Each file is an <strong style="color:var(--amber)">.xlsx Excel</strong> with two sheets:<br>
+          📄 <strong style="color:var(--text)">Sheet 1</strong> — Full scan report with prices &amp; notes<br>
+          📋 <strong style="color:var(--text)">Sheet 2</strong> — Odoo import format, ready to upload
         </p>
       </div>
     </div>
@@ -1085,20 +1088,55 @@ async function getFolderIdOrCreate(token) {
   return folder.id;
 }
 
-function buildCSV(records, customer, dateStr) {
-  const hdr  = ['timestamp','sku','qty','customer_price','line_total_aed','customer_name','note','scanned_by','email'];
-  const rows = records.map(r => {
-    const lt = (r.qty*(r.customer_price||0)).toFixed(2);
-    return [r.timestamp,r.sku,r.qty,r.customer_price,lt,r.customer_name,r.note||'',r.exported_by||currentUser.name,r.exported_email||currentUser.email].map(csvCell).join(',');
-  });
-  const grandTotal = records.reduce((s,r)=>s+(r.qty*(r.customer_price||0)),0).toFixed(2);
+function buildExcelWorkbook(records, customer, dateStr) {
+  const wb = XLSX.utils.book_new();
+
+  // ── SHEET 1: Full Detail Report ──────────────────────────
+  const grandTotal = records.reduce((s,r)=>s+(r.qty*(r.customer_price||0)),0);
   const totalItems = records.reduce((s,r)=>s+r.qty,0);
-  rows.push('');
-  rows.push([`Customer: ${customer}`,'','','','','','','',''].map(csvCell).join(','));
-  rows.push([`Session Date: ${dateStr}`,'','','','','','','',''].map(csvCell).join(','));
-  rows.push([`Total Items`,'',totalItems,'','','','','',''].map(csvCell).join(','));
-  rows.push([`TOTAL AED VALUE`,'','','',grandTotal,'','','',''].map(csvCell).join(','));
-  return [hdr.join(','),...rows].join('\r\n');
+
+  const s1data = [
+    ['Timestamp','SKU','Qty','Unit Price (AED)','Line Total (AED)','Customer','Note','Scanned By','Email'],
+    ...records.map(r => [
+      r.timestamp, r.sku, r.qty,
+      r.customer_price||0,
+      parseFloat((r.qty*(r.customer_price||0)).toFixed(2)),
+      r.customer_name, r.note||'',
+      r.exported_by||currentUser.name,
+      r.exported_email||currentUser.email
+    ]),
+    [],
+    ['Customer:', customer,'','','','','','',''],
+    ['Session Date:', dateStr,'','','','','','',''],
+    ['Total Items:','',totalItems,'','','','','',''],
+    ['TOTAL AED VALUE:','','','',parseFloat(grandTotal.toFixed(2)),'','','','']
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(s1data);
+  // Column widths
+  ws1['!cols'] = [
+    {wch:20},{wch:30},{wch:8},{wch:16},{wch:16},{wch:22},{wch:25},{wch:20},{wch:28}
+  ];
+  // Bold header row style hint
+  XLSX.utils.book_append_sheet(wb, ws1, 'Scan Report');
+
+  // ── SHEET 2: Odoo Import Format ──────────────────────────
+  // Odoo format: Customer on first data row only, blank after
+  // Columns: Customer | Order Lines/Article Number | Order Lines/Ref. Quantity
+  const s2rows = [
+    ['Customer', 'Order Lines/Article Number', 'Order Lines/Ref. Quantity']
+  ];
+  records.forEach((r, i) => {
+    s2rows.push([
+      i === 0 ? (r.customer_name || customer) : '',  // customer only on first row
+      r.sku,
+      r.qty
+    ]);
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet(s2rows);
+  ws2['!cols'] = [{wch:25},{wch:35},{wch:28}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Odoo Import');
+
+  return wb;
 }
 
 function setProgress(pct, label) {
@@ -1117,23 +1155,34 @@ async function uploadToGoogleDrive(records, customer, dateStr, btnEl) {
     const token = await ensureAccessToken();
     setProgress(30, 'Finding Drive folder…');
     const folderId = await getFolderIdOrCreate(token);
-    setProgress(55, 'Uploading file…');
-    const csv      = buildCSV(records, customer, dateStr);
+    setProgress(55, 'Building Excel file…');
+
+    // Build .xlsx with SheetJS
+    const wb       = buildExcelWorkbook(records, customer, dateStr);
+    const wbArray  = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob     = new Blob([wbArray], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+
     const safe     = (customer||'session').replace(/[^a-z0-9]/gi,'_');
-    const filename = `Fraimage_${safe}_${formatDate(new Date())}.csv`;
-    // Multipart upload
-    const boundary = '-------fraimage_boundary';
-    const meta     = JSON.stringify({name:filename,parents:[folderId]});
-    const body     = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${boundary}--`;
+    const filename = `Fraimage_${safe}_${formatDate(new Date())}.xlsx`;
+
+    // Multipart upload with binary blob
+    const boundary = '-------fraimage_xlxs_boundary';
+    const meta     = JSON.stringify({name:filename, parents:[folderId]});
+    const metaBlob = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`], {type:'text/plain'});
+    const endBlob  = new Blob([`\r\n--${boundary}--`], {type:'text/plain'});
+    const body     = new Blob([metaBlob, blob, endBlob]);
+
+    setProgress(75, 'Uploading to Drive…');
     const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method:'POST',
       headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},
       body
     });
     const result = await up.json();
+    if (result.error) throw new Error(result.error.message);
     setProgress(100, '✓ Uploaded: '+filename);
-    setTimeout(hideProgress, 2500);
-    toast('☁ Saved to Google Drive ✓');
+    setTimeout(hideProgress, 3000);
+    toast('☁ Excel saved to Google Drive ✓');
     playBeep('save');
   } catch(err) {
     hideProgress();
