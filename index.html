@@ -653,7 +653,7 @@ function signInWithGoogle() {
   // Use token client for Drive access (needs access token, not just ID token)
   const tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
-    scope: 'https://www.googleapis.com/auth/drive.file openid profile email',
+    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid profile email',
     callback: handleTokenResponse
   });
   tokenClient.requestAccessToken({ prompt: '' });
@@ -1123,7 +1123,7 @@ let _tokenClient = null;
 function getTokenClient(callback) {
   _tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
-    scope: 'https://www.googleapis.com/auth/drive.file openid profile email',
+    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid profile email',
     callback
   });
   return _tokenClient;
