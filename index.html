@@ -709,8 +709,9 @@ function onLoginSuccess(silent=false) {
   loadSettings();
   loadOrCreateSession();
   showApp();
-  // Load pricelist from Drive in background (non-blocking)
-  if (!silent) loadPricelistFromDrive();
+  // Always load pricelist — from cache immediately, then refresh from Drive
+  loadPricelistFromCache();        // instant, works offline
+  loadPricelistFromDrive();        // background refresh from Drive
 }
 
 function logout() {
@@ -940,16 +941,24 @@ function onScanSuccess(rawValue, source) {
   document.getElementById('sku-field').value   = sku;
   document.getElementById('qty-field').value   = 1;
   // Auto-fill price from pricelist if available
-  const autoPrice = priceMap[sku] || priceMap[sku.toLowerCase()] || null;
+  // Try exact match, then uppercase, then lowercase
+  const autoPrice = priceMap[sku] !== undefined ? priceMap[sku]
+                  : priceMap[sku.toUpperCase()] !== undefined ? priceMap[sku.toUpperCase()]
+                  : priceMap[sku.toLowerCase()] !== undefined ? priceMap[sku.toLowerCase()]
+                  : null;
   const priceField = document.getElementById('price-field');
-  priceField.value = autoPrice !== null ? autoPrice : '';
   if (autoPrice !== null) {
+    priceField.value = autoPrice;
     priceField.style.borderColor = 'var(--green)';
-    priceField.title = 'Price from pricelist';
+    priceField.style.background  = '#0c1f14';
+    priceField.title = '✓ Price from pricelist';
   } else {
+    priceField.value = '';
     priceField.style.borderColor = '';
+    priceField.style.background  = '';
     priceField.title = '';
   }
+  console.log('[Pricelist] SKU:', sku, '| Price:', autoPrice, '| Total SKUs in map:', Object.keys(priceMap).length);
   document.getElementById('btn-save').disabled = false;
   document.getElementById('entry-dot').classList.remove('off');
   if (navigator.vibrate) navigator.vibrate(120);
@@ -1109,17 +1118,40 @@ function renderExportPage(){
 // ═══════════════════════════════════════════════════
 // GOOGLE DRIVE UPLOAD
 // ═══════════════════════════════════════════════════
+// Token client singleton — reuse same instance for silent refresh
+let _tokenClient = null;
+function getTokenClient(callback) {
+  _tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/drive.file openid profile email',
+    callback
+  });
+  return _tokenClient;
+}
+
 async function ensureAccessToken() {
-  if (currentUser && currentUser.accessToken) return currentUser.accessToken;
-  // Re-request token silently
+  // If token exists and not expired (with 2 min buffer), reuse it
+  const now = Date.now();
+  if (currentUser && currentUser.accessToken && currentUser.tokenExpiry && now < currentUser.tokenExpiry - 120000) {
+    return currentUser.accessToken;
+  }
+  // Request token silently (no popup if user already consented)
   return new Promise((resolve, reject) => {
-    const tc = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: (r) => {
-        if (r.error) reject(r.error);
-        else { currentUser.accessToken = r.access_token; resolve(r.access_token); }
+    const tc = getTokenClient((r) => {
+      if (r.error) {
+        // If silent fails, try with select_account (shows account picker but not full consent)
+        const tc2 = getTokenClient((r2) => {
+          if (r2.error) { reject(new Error(r2.error)); return; }
+          currentUser.accessToken  = r2.access_token;
+          currentUser.tokenExpiry  = Date.now() + ((r2.expires_in||3600) * 1000);
+          resolve(r2.access_token);
+        });
+        tc2.requestAccessToken({prompt:'select_account'});
+        return;
       }
+      currentUser.accessToken  = r.access_token;
+      currentUser.tokenExpiry  = Date.now() + ((r.expires_in||3600) * 1000);
+      resolve(r.access_token);
     });
     tc.requestAccessToken({prompt:''});
   });
@@ -1280,11 +1312,24 @@ function uploadSessionById(id) {
 // ═══════════════════════════════════════════════════
 const PRICELIST_FILENAME = 'pricelist.xlsx'; // put this file in your Fraimage Scans folder
 
+function loadPricelistFromCache() {
+  // Load cached pricelist instantly on startup (no network needed)
+  if (!currentUser) return;
+  try {
+    const cached = JSON.parse(localStorage.getItem('inv_pricelist_'+currentUser.id)||'null');
+    if (cached && cached.map && Object.keys(cached.map).length > 0) {
+      priceMap = cached.map;
+      const age = Math.round((Date.now()-cached.ts)/60000);
+      updatePricelistStatus('warn', `⏳ Cache loaded (${Object.keys(priceMap).length} SKUs) — refreshing from Drive…`);
+    }
+  } catch(e) {}
+}
+
 async function loadPricelistFromDrive() {
   updatePricelistStatus('loading', '⏳ Loading pricelist…');
   try {
     const token = await ensureAccessToken();
-    // Search for pricelist.xlsx anywhere in the shared folder tree
+    // Search for pricelist.xlsx in the shared folder (root level)
     const q = encodeURIComponent(
       `name='${PRICELIST_FILENAME}' and '${SHARED_PARENT_ID}' in parents and trashed=false`
     );
@@ -1309,8 +1354,19 @@ async function loadPricelistFromDrive() {
     if (rows.length < 2) { updatePricelistStatus('warn','⚠ Pricelist file is empty'); return; }
     // Find SKU and Price columns (flexible — works with any header names)
     const headers = rows[0].map(h => String(h).toLowerCase().trim());
-    const skuCol  = headers.findIndex(h => h.includes('reference') || h.includes('internal ref') || h.includes('sku') || h.includes('article') || h.includes('code') || h.includes('default_code'));
-    const priceCol= headers.findIndex(h => h.includes('price') || h.includes('sales price') || h.includes('unit price') || h.includes('sale'));
+    // Flexible column detection — works with Odoo default exports and custom headers
+    const skuCol  = headers.findIndex(h =>
+      h.includes('internal reference') || h.includes('internal ref') ||
+      h.includes('default_code') || h.includes('article number') ||
+      h.includes('sku') || h.includes('reference') || h.includes('code') ||
+      h === 'ref' || h === 'id'
+    );
+    const priceCol= headers.findIndex(h =>
+      h.includes('sales price') || h.includes('sale price') ||
+      h.includes('unit price') || h.includes('list price') ||
+      h.includes('price') || h.includes('tarif')
+    );
+    console.log('[Pricelist] Headers:', rows[0], '| SKU col:', skuCol, '| Price col:', priceCol);
     if (skuCol === -1 || priceCol === -1) {
       updatePricelistStatus('error', `✗ Cannot find SKU/Price columns. Headers found: ${rows[0].join(', ')}`);
       return;
