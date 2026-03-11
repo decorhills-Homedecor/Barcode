@@ -542,6 +542,23 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
       </div>
     </div>
     <div class="card">
+      <div class="card-header"><div class="dot off" id="pricelist-dot"></div>PRICELIST STATUS</div>
+      <div class="card-body">
+        <div id="pricelist-status" style="font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:12px">
+          ● Not loaded yet
+        </div>
+        <button class="btn btn-ghost" onclick="loadPricelistFromDrive()" style="font-size:13px;padding:10px">
+          🔄 &nbsp;Refresh Pricelist from Drive
+        </button>
+        <p style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:10px;line-height:1.7">
+          Place a file named <strong style="color:var(--amber)">pricelist.xlsx</strong> in your<br>
+          Fraimage Scans shared Drive folder.<br>
+          Needs columns: Internal Reference + Sales Price
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-header">ACCOUNT</div>
       <div class="card-body">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
@@ -596,6 +613,8 @@ let liveActive    = false;
 let lastScanSKU   = '';
 let lastScanTime  = 0;
 let currentMode   = 'live';
+let priceMap      = {};   // SKU -> price loaded from Drive pricelist
+const USER_CACHE_KEY = 'inv_cached_user';
 
 // ═══════════════════════════════════════════════════
 // INIT
@@ -605,12 +624,24 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('qr-capture').addEventListener('change', handleCapturedImage);
   document.getElementById('manual-sku-input').addEventListener('keydown', e => { if(e.key==='Enter') useManualSKU(); });
   document.getElementById('modal-customer-input').addEventListener('keydown', e => { if(e.key==='Enter') setCustomerFromModal(); });
-  // Init Google Identity Services
+
+  // Try to restore cached user (so login persists across page loads)
+  try {
+    const cached = JSON.parse(localStorage.getItem(USER_CACHE_KEY)||'null');
+    if (cached && cached.id && cached.name) {
+      currentUser = { ...cached, accessToken: null }; // token must be re-fetched
+      onLoginSuccess(true); // silent = true, skip pricelist load until needed
+      return;
+    }
+  } catch(e) {}
+
+  // Init Google Identity Services for fresh login
   google.accounts.id.initialize({
     client_id: GOOGLE_CLIENT_ID,
     callback: handleGoogleCredential,
-    auto_select: false
+    auto_select: true
   });
+  google.accounts.id.prompt(); // try silent sign-in
 });
 
 // ═══════════════════════════════════════════════════
@@ -625,7 +656,7 @@ function signInWithGoogle() {
     scope: 'https://www.googleapis.com/auth/drive.file openid profile email',
     callback: handleTokenResponse
   });
-  tokenClient.requestAccessToken({ prompt: 'consent' });
+  tokenClient.requestAccessToken({ prompt: '' });
 }
 
 async function handleTokenResponse(tokenResponse) {
@@ -666,16 +697,27 @@ function handleGoogleCredential(response) {
   } catch(e) { toast('Sign-in error', 'error'); }
 }
 
-function onLoginSuccess() {
+function onLoginSuccess(silent=false) {
   document.getElementById('login-loading').classList.remove('show');
+  // Cache user profile for persistent login
+  try {
+    localStorage.setItem(USER_CACHE_KEY, JSON.stringify({
+      id: currentUser.id, name: currentUser.name,
+      email: currentUser.email, picture: currentUser.picture
+    }));
+  } catch(e) {}
   loadSettings();
   loadOrCreateSession();
   showApp();
+  // Load pricelist from Drive in background (non-blocking)
+  if (!silent) loadPricelistFromDrive();
 }
 
 function logout() {
   stopLive();
   google.accounts.id.disableAutoSelect();
+  localStorage.removeItem(USER_CACHE_KEY);
+  priceMap      = {};
   currentUser   = null;
   activeSession = null;
   document.querySelector('.google-btn').classList.remove('hidden');
@@ -897,7 +939,17 @@ function onScanSuccess(rawValue, source) {
   } else { setSS('photo','ss-success','✓ SKU: '+sku); }
   document.getElementById('sku-field').value   = sku;
   document.getElementById('qty-field').value   = 1;
-  document.getElementById('price-field').value = '';
+  // Auto-fill price from pricelist if available
+  const autoPrice = priceMap[sku] || priceMap[sku.toLowerCase()] || null;
+  const priceField = document.getElementById('price-field');
+  priceField.value = autoPrice !== null ? autoPrice : '';
+  if (autoPrice !== null) {
+    priceField.style.borderColor = 'var(--green)';
+    priceField.title = 'Price from pricelist';
+  } else {
+    priceField.style.borderColor = '';
+    priceField.title = '';
+  }
   document.getElementById('btn-save').disabled = false;
   document.getElementById('entry-dot').classList.remove('off');
   if (navigator.vibrate) navigator.vibrate(120);
@@ -1221,6 +1273,85 @@ function uploadSessionById(id) {
   const s = sessions.find(x=>x.id===id);
   if (!s){toast('Session not found','error');return;}
   uploadToGoogleDrive(s.records||[], s.customer, s.start, null);
+}
+
+// ═══════════════════════════════════════════════════
+// PRICELIST — load from shared Drive folder
+// ═══════════════════════════════════════════════════
+const PRICELIST_FILENAME = 'pricelist.xlsx'; // put this file in your Fraimage Scans folder
+
+async function loadPricelistFromDrive() {
+  updatePricelistStatus('loading', '⏳ Loading pricelist…');
+  try {
+    const token = await ensureAccessToken();
+    // Search for pricelist.xlsx anywhere in the shared folder tree
+    const q = encodeURIComponent(
+      `name='${PRICELIST_FILENAME}' and '${SHARED_PARENT_ID}' in parents and trashed=false`
+    );
+    const res  = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+      headers:{Authorization:'Bearer '+token}
+    });
+    const data = await res.json();
+    if (!data.files || data.files.length === 0) {
+      updatePricelistStatus('warn', '⚠ No pricelist.xlsx found in Fraimage Scans folder');
+      return;
+    }
+    const file = data.files[0];
+    // Download the file content
+    const dl = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+      headers:{Authorization:'Bearer '+token}
+    });
+    const arrayBuffer = await dl.arrayBuffer();
+    // Parse with SheetJS
+    const wb    = XLSX.read(arrayBuffer, {type:'array'});
+    const ws    = wb.Sheets[wb.SheetNames[0]];
+    const rows  = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if (rows.length < 2) { updatePricelistStatus('warn','⚠ Pricelist file is empty'); return; }
+    // Find SKU and Price columns (flexible — works with any header names)
+    const headers = rows[0].map(h => String(h).toLowerCase().trim());
+    const skuCol  = headers.findIndex(h => h.includes('reference') || h.includes('internal ref') || h.includes('sku') || h.includes('article') || h.includes('code') || h.includes('default_code'));
+    const priceCol= headers.findIndex(h => h.includes('price') || h.includes('sales price') || h.includes('unit price') || h.includes('sale'));
+    if (skuCol === -1 || priceCol === -1) {
+      updatePricelistStatus('error', `✗ Cannot find SKU/Price columns. Headers found: ${rows[0].join(', ')}`);
+      return;
+    }
+    priceMap = {};
+    let count = 0;
+    rows.slice(1).forEach(row => {
+      const sku   = String(row[skuCol]||'').trim().toUpperCase();
+      const price = parseFloat(row[priceCol]);
+      if (sku && !isNaN(price) && price >= 0) { priceMap[sku] = price; count++; }
+    });
+    const modified = file.modifiedTime ? new Date(file.modifiedTime).toLocaleDateString() : '—';
+    updatePricelistStatus('ok', `✓ ${count.toLocaleString()} SKUs loaded &nbsp;·&nbsp; Updated: ${modified}`);
+    // Cache pricelist in localStorage for offline use
+    try { localStorage.setItem('inv_pricelist_'+currentUser.id, JSON.stringify({map:priceMap,ts:Date.now()})); } catch(e){}
+  } catch(err) {
+    // Try loading from cache
+    try {
+      const cached = JSON.parse(localStorage.getItem('inv_pricelist_'+currentUser.id)||'null');
+      if (cached && cached.map) {
+        priceMap = cached.map;
+        const age = Math.round((Date.now()-cached.ts)/60000);
+        updatePricelistStatus('warn', `⚠ Offline cache (${age} min old) — ${Object.keys(priceMap).length} SKUs`);
+        return;
+      }
+    } catch(e2){}
+    updatePricelistStatus('error', '✗ Failed to load: '+(err.message||err));
+  }
+}
+
+function updatePricelistStatus(type, msg) {
+  const el = document.getElementById('pricelist-status');
+  if (!el) return;
+  const colors = {ok:'var(--green)', warn:'var(--amber)', error:'var(--red)', loading:'var(--muted)'};
+  el.style.color = colors[type] || 'var(--muted)';
+  el.innerHTML = msg;
+  // Also update dot
+  const dot = document.getElementById('pricelist-dot');
+  if (dot) {
+    dot.className = 'dot ' + (type==='ok'?'green':type==='loading'?'off':type==='warn'?'':'red');
+  }
 }
 
 // ═══════════════════════════════════════════════════
