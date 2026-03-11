@@ -469,9 +469,12 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
             <div class="drive-acct-status">✓ Connected to Google Drive</div>
           </div>
         </div>
-        <p style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7">
-          Files save to <strong style="color:var(--green)">My Drive → Fraimage Scans</strong> folder.<br>
-          Each file is an <strong style="color:var(--amber)">.xlsx Excel</strong> with two sheets:<br>
+        <p style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:2">
+          📁 <strong style="color:var(--green)">Fraimage Scans</strong> (your shared folder)<br>
+          &nbsp;&nbsp;└─ 📁 <strong style="color:var(--amber)">Staff Name</strong> (auto-created per user)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ 📁 <strong style="color:var(--blue)">2026-03-11</strong> (auto-created per day)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ 📄 <strong style="color:var(--text)">Fraimage_Customer_Date.xlsx</strong><br><br>
+          Each Excel has 2 sheets:<br>
           📄 <strong style="color:var(--text)">Sheet 1</strong> — Full scan report with prices &amp; notes<br>
           📋 <strong style="color:var(--text)">Sheet 2</strong> — Odoo import format, ready to upload
         </p>
@@ -579,7 +582,7 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
 // CONFIG — your Google OAuth Client ID
 // ═══════════════════════════════════════════════════
 const GOOGLE_CLIENT_ID = '456195571791-9uin6bnh61j8jqkcbkffph6fit7dp6kl.apps.googleusercontent.com';
-const DRIVE_FOLDER_NAME = 'Fraimage Scans';
+const SHARED_PARENT_ID  = '1y3YPOIEELOsejPBMLlIKvx-r0HmTf93P'; // Your shared Fraimage Scans folder
 
 // ═══════════════════════════════════════════════════
 // STATE
@@ -1070,22 +1073,37 @@ async function ensureAccessToken() {
   });
 }
 
-async function getFolderIdOrCreate(token) {
-  // Search for existing folder
-  const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+// Find or create a single folder inside a given parent
+async function getOrCreateFolder(token, name, parentId) {
+  const safeName = name.replace(/'/g, "\\'");
+  const q = encodeURIComponent(
+    `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+  );
+  const res  = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
     headers:{Authorization:'Bearer '+token}
   });
   const data = await res.json();
-  if (data.files && data.files.length>0) return data.files[0].id;
-  // Create folder
+  if (data.files && data.files.length > 0) return data.files[0].id;
+  // Create it
   const cr = await fetch('https://www.googleapis.com/drive/v3/files', {
     method:'POST',
     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({name:DRIVE_FOLDER_NAME,mimeType:'application/vnd.google-apps.folder'})
+    body: JSON.stringify({name, mimeType:'application/vnd.google-apps.folder', parents:[parentId]})
   });
   const folder = await cr.json();
+  if (folder.error) throw new Error('Folder create failed: ' + folder.error.message);
   return folder.id;
+}
+
+// Build path: Fraimage Scans (shared) -> [Staff Name] -> [YYYY-MM-DD]
+async function getUploadFolderId(token) {
+  const staffName = currentUser.name;
+  const today     = new Date();
+  const pad       = n => String(n).padStart(2,'0');
+  const dateStr   = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+  const staffId   = await getOrCreateFolder(token, staffName, SHARED_PARENT_ID);
+  const dateId    = await getOrCreateFolder(token, dateStr, staffId);
+  return dateId;
 }
 
 function buildExcelWorkbook(records, customer, dateStr) {
@@ -1153,8 +1171,8 @@ async function uploadToGoogleDrive(records, customer, dateStr, btnEl) {
   try {
     setProgress(10, 'Authenticating…');
     const token = await ensureAccessToken();
-    setProgress(30, 'Finding Drive folder…');
-    const folderId = await getFolderIdOrCreate(token);
+    setProgress(30, 'Creating folder structure…');
+    const folderId = await getUploadFolderId(token);
     setProgress(55, 'Building Excel file…');
 
     // Build .xlsx with SheetJS
