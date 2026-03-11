@@ -189,13 +189,7 @@ input.highlight { border-color:var(--green); background:#0c1f14; }
 .ss-warn    { background:#2a1e00; color:var(--amber); border:1px solid #4a3800; }
 .ss-error   { background:#2a0f0f; color:var(--red); border:1px solid #4a1f1f; }
 
-/* ── HTTPS notice ── */
-#https-notice { background:#2a1e00; border:1px solid #5a3d00; border-radius:var(--r); padding:14px; margin-bottom:14px; font-size:13px; line-height:1.7; }
-#https-notice .nt { color:var(--amber); font-weight:700; font-family:var(--mono); font-size:11px; letter-spacing:1px; }
-#https-notice ol { margin:8px 0 0 16px; color:var(--text); }
-#https-notice li { margin-bottom:3px; }
-#https-notice a { color:var(--amber); }
-#https-notice code { background:var(--panel); color:var(--blue); font-family:var(--mono); font-size:11px; padding:1px 5px; border-radius:3px; }
+/* ── HTTPS notice (removed) ── */
 
 /* ── Toast ── */
 #toast { position:fixed; top:70px; left:50%; transform:translateX(-50%) translateY(-20px); background:var(--green); color:#000; font-family:var(--sans); font-weight:700; font-size:15px; padding:12px 24px; border-radius:30px; z-index:9999; opacity:0; transition:all 0.25s; white-space:nowrap; pointer-events:none; max-width:90vw; text-align:center; }
@@ -532,16 +526,7 @@ textarea:focus { border-color:var(--amber); }
       </div>
     </div>
 
-    <!-- HTTPS notice for live mode -->
-    <div id="https-notice" class="hidden">
-      <div class="nt">⚡ TO ENABLE LIVE AUTO-SCAN</div>
-      <ol>
-        <li>Go to <a href="https://tiiny.host" target="_blank"><strong>tiiny.host</strong></a> on your PC</li>
-        <li>Drag &amp; drop this HTML file → get a free URL</li>
-        <li>Open that URL in Chrome on phone → Live Scan works ✓</li>
-      </ol>
-      <div style="margin-top:8px;color:var(--muted);font-size:12px;">Photo Scan works fine without this.</div>
-    </div>
+    <!-- HTTPS notice removed -->
 
     <!-- Scanner card -->
     <div class="card">
@@ -553,12 +538,12 @@ textarea:focus { border-color:var(--amber); }
       <div class="card-body">
 
         <div class="mode-tabs">
-          <button class="mode-tab" id="tab-live" onclick="switchMode('live')">🎥 &nbsp;Live Scan</button>
-          <button class="mode-tab active" id="tab-photo" onclick="switchMode('photo')">📷 &nbsp;Photo Scan</button>
+          <button class="mode-tab active" id="tab-live" onclick="switchMode('live')">🎥 &nbsp;Live Scan</button>
+          <button class="mode-tab" id="tab-photo" onclick="switchMode('photo')">📷 &nbsp;Photo Scan</button>
         </div>
 
         <!-- Live panel -->
-        <div id="panel-live" class="hidden">
+        <div id="panel-live">
           <div id="live-wrap">
             <video id="live-video" autoplay playsinline muted></video>
             <div class="scan-overlay"><div class="bl"></div><div class="br"></div><div class="scan-beam"></div></div>
@@ -571,7 +556,7 @@ textarea:focus { border-color:var(--amber); }
         </div>
 
         <!-- Photo panel -->
-        <div id="panel-photo">
+        <div id="panel-photo" class="hidden">
           <div class="photo-btn-wrap">
             <input type="file" id="qr-capture" accept="image/*" capture="environment">
             <div class="photo-btn-visual">
@@ -795,8 +780,7 @@ textarea:focus { border-color:var(--amber); }
       <div class="card-header">HOW TO USE</div>
       <div class="card-body" style="font-size:13px;line-height:1.8;color:var(--text);">
         <strong style="color:var(--amber);">Photo Scan</strong> — works on any local file. Tap button, take photo, SKU auto-fills.<br><br>
-        <strong style="color:var(--amber);">Live Scan</strong> — needs file hosted on HTTPS. Upload to
-        <a href="https://tiiny.host" target="_blank" style="color:var(--blue);">tiiny.host</a> (free, drag &amp; drop).<br><br>
+        <strong style="color:var(--amber);">Live Scan</strong> — points camera at QR code, detects automatically. Use Chrome on Android.<br><br>
         <strong style="color:var(--amber);">Sessions</strong> — each customer visit is one session. End a session to save it to history. Export anytime as CSV.<br><br>
         <strong style="color:var(--amber);">Tiiny.host banner</strong> — if their footer banner covers buttons, scroll down or use the bottom nav which has extra padding built in.
       </div>
@@ -882,7 +866,7 @@ let liveTimer    = null;
 let liveActive   = false;
 let lastScanSKU  = '';
 let lastScanTime = 0;
-let currentMode  = 'photo';
+let currentMode  = 'live';
 
 // ── PIN buffers ───────────────────────────────────────────────
 const pins = { login:'', reg:'', cp:'' };
@@ -981,6 +965,8 @@ function doLogin() {
   errEl.textContent = '';
   pinClear('login');
   currentUser = { id:loginSelected, name:user.name, role:user.role||'' };
+  // Derive encryption key from PIN — async, non-blocking
+  deriveKey(pins.login || user.pin, loginSelected).then(k => { _cryptoKey = k; });
   loadSettings();
   loadOrCreateSession();
   showApp();
@@ -1019,6 +1005,7 @@ function registerUser() {
 // ── LOGOUT ────────────────────────────────────────────────
 function logout() {
   stopLive();
+  _cryptoKey    = null;
   currentUser   = null;
   loginSelected = null;
   activeSession = null;
@@ -1065,20 +1052,101 @@ function showApp() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SESSION MANAGEMENT
+// DATA SECURITY — PIN-derived encryption for session data
+// Uses Web Crypto API (AES-GCM). Data is unreadable without
+// the correct PIN. Copy-pasting localStorage to another device
+// or browser produces only garbled ciphertext.
 // ═══════════════════════════════════════════════════════════
+async function deriveKey(pin, userId) {
+  const enc  = new TextEncoder();
+  const raw  = enc.encode(pin + ':' + userId);
+  const base = await crypto.subtle.importKey('raw', raw, 'PBKDF2', false, ['deriveKey']);
+  const salt = enc.encode('fraimage_inv_v1_' + userId);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt, iterations:100000, hash:'SHA-256' },
+    base,
+    { name:'AES-GCM', length:256 },
+    false,
+    ['encrypt','decrypt']
+  );
+}
+
+async function encryptData(key, plaintext) {
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+  const ct  = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(plaintext));
+  // Store iv + ciphertext as base64
+  const combined = new Uint8Array(iv.length + ct.byteLength);
+  combined.set(iv); combined.set(new Uint8Array(ct), iv.length);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptData(key, b64) {
+  try {
+    const bytes    = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+    const iv       = bytes.slice(0, 12);
+    const ct       = bytes.slice(12);
+    const dec      = await crypto.subtle.decrypt({ name:'AES-GCM', iv }, key, ct);
+    return new TextDecoder().decode(dec);
+  } catch(e) { return null; }
+}
+
+let _cryptoKey = null; // set on login, cleared on logout
+
+async function saveActiveSession() {
+  if (!activeSession) return;
+  const raw = JSON.stringify(activeSession);
+  if (_cryptoKey) {
+    const enc = await encryptData(_cryptoKey, raw);
+    localStorage.setItem(sessionKey(), '🔒' + enc);
+  } else {
+    localStorage.setItem(sessionKey(), raw);
+  }
+}
+
+async function loadActiveSessionData() {
+  const raw = localStorage.getItem(sessionKey());
+  if (!raw) return null;
+  if (raw.startsWith('🔒') && _cryptoKey) {
+    const dec = await decryptData(_cryptoKey, raw.slice(2));
+    if (!dec) return null;
+    return JSON.parse(dec);
+  }
+  try { return JSON.parse(raw); } catch(e) { return null; }
+}
+
+async function saveSessionHistory(sessions) {
+  const raw = JSON.stringify(sessions);
+  if (_cryptoKey) {
+    const enc = await encryptData(_cryptoKey, raw);
+    localStorage.setItem(sessionsKey(), '🔒' + enc);
+  } else {
+    localStorage.setItem(sessionsKey(), raw);
+  }
+}
+
+async function loadSessionHistory() {
+  const raw = localStorage.getItem(sessionsKey());
+  if (!raw) return [];
+  if (raw.startsWith('🔒') && _cryptoKey) {
+    const dec = await decryptData(_cryptoKey, raw.slice(2));
+    if (!dec) return [];
+    return JSON.parse(dec);
+  }
+  try { return JSON.parse(raw)||[]; } catch(e) { return []; }
+}
+
+
 function sessionKey()  { return 'inv_active_'   + currentUser.id; }
 function sessionsKey() { return 'inv_sessions_'  + currentUser.id; }
 
-function loadOrCreateSession() {
+async function loadOrCreateSession() {
   try {
-    const raw = localStorage.getItem(sessionKey());
-    if (raw) {
-      activeSession = JSON.parse(raw);
-      // Show customer modal only if there's no customer yet
+    const data = await loadActiveSessionData();
+    if (data) {
+      activeSession = data;
       if (!activeSession.customer) showCustomerModal();
     } else {
-      // Brand new session
       activeSession = null;
       showCustomerModal();
     }
@@ -1112,33 +1180,25 @@ function updateSessionHeader() {
   document.getElementById('customer-field').value = activeSession.customer;
 }
 
-// End session → push to history
-function endSession() {
+async function endSession() {
   if (!activeSession) { toast('No active session','warn'); return; }
   if (!activeSession.records.length) { toast('Session is empty — add entries first','warn'); return; }
   if (!confirm('End this session and save to history?')) return;
 
   activeSession.end = formatTimestamp(new Date());
-
-  // Append to saved sessions
-  const saved = getSavedSessions();
+  const saved = await loadSessionHistory();
   saved.unshift({ ...activeSession });
-  localStorage.setItem(sessionsKey(), JSON.stringify(saved));
-
-  // Clear active session
+  await saveSessionHistory(saved);
   localStorage.removeItem(sessionKey());
   activeSession = null;
-
   toast('Session saved to history ✓');
   goPage('dash');
   renderDashboard();
-
-  // Prompt for new session
   setTimeout(() => showCustomerModal(), 600);
 }
 
-function getSavedSessions() {
-  try { return JSON.parse(localStorage.getItem(sessionsKey()) || '[]'); } catch(e) { return []; }
+async function getSavedSessions() {
+  return loadSessionHistory();
 }
 
 // ── CUSTOMER MODAL ────────────────────────────────────────
@@ -1180,12 +1240,9 @@ function switchMode(mode) {
   document.getElementById('panel-photo').classList.toggle('hidden', mode!=='photo');
 
   if (mode==='live') {
-    const ok = location.protocol==='https:' || location.hostname==='localhost';
-    document.getElementById('https-notice').classList.toggle('hidden', ok);
-    if (!ok) setSS('live','warn','⚠ Live scan needs HTTPS. See notice above. Use Photo Scan for now.');
-    else setSS('live','ss-ready','● Tap START to begin live scanning');
+    setSS('live','ss-ready','● Tap START to begin live scanning');
   } else {
-    document.getElementById('https-notice').classList.add('hidden');
+    // photo mode
   }
 }
 
@@ -1193,8 +1250,6 @@ function switchMode(mode) {
 async function startLive() {
   if (liveActive) return;
   if (!activeSession) { showCustomerModal(); return; }
-  const ok = location.protocol==='https:' || location.hostname==='localhost';
-  if (!ok) { setSS('live','ss-error','✗ Needs HTTPS. Upload to tiiny.host first.'); return; }
   if (!('BarcodeDetector' in window)) { setSS('live','ss-error','✗ Use Chrome 83+ on Android.'); return; }
 
   setSS('live','ss-reading','⏳ Opening camera…');
@@ -1437,8 +1492,8 @@ function renderScanPage(flashFirst=false) {
     </tr>`).join('');
 }
 
-function renderDashboard() {
-  const sessions  = getSavedSessions();
+async function renderDashboard() {
+  const sessions  = await getSavedSessions();
   const allRec    = sessions.flatMap(s=>s.records||[]);
   const customers = new Set(sessions.map(s=>s.customer)).size;
 
@@ -1492,8 +1547,8 @@ function toggleSession(i) {
   el.classList.toggle('open');
 }
 
-function renderExportPage() {
-  const sessions = getSavedSessions();
+async function renderExportPage() {
+  const sessions = await getSavedSessions();
   const cont     = document.getElementById('export-session-list');
   if (!sessions.length) {
     cont.innerHTML='<div class="empty-state">// No saved sessions yet</div>';
@@ -1517,8 +1572,8 @@ function exportCurrentCSV() {
   doExportCSV(activeSession.records, activeSession.customer, activeSession.start);
 }
 
-function exportSessionById(id) {
-  const sessions = getSavedSessions();
+async function exportSessionById(id) {
+  const sessions = await getSavedSessions();
   const s = sessions.find(x=>x.id===id);
   if (!s) { toast('Session not found','error'); return; }
   doExportCSV(s.records||[], s.customer, s.start);
@@ -1571,18 +1626,18 @@ function clearCurrentSession() {
   saveActiveSession(); renderScanPage(); resetForm(); toast('Session cleared','warn');
 }
 
-function deleteSession(id) {
+async function deleteSession(id) {
   if (!confirm('Delete this session permanently?')) return;
-  const sessions = getSavedSessions().filter(s=>s.id!==id);
-  localStorage.setItem(sessionsKey(), JSON.stringify(sessions));
+  const all = await getSavedSessions();
+  await saveSessionHistory(all.filter(s=>s.id!==id));
   renderDashboard(); renderExportPage(); toast('Session deleted','warn');
 }
 
-function deleteAllData() {
+async function deleteAllData() {
   if (!confirm('Delete ALL your data permanently? This cannot be undone.')) return;
   if (!confirm('Are you absolutely sure?')) return;
   localStorage.removeItem(sessionKey());
-  localStorage.removeItem(sessionsKey());
+  await saveSessionHistory([]);
   activeSession=null;
   renderScanPage(); renderDashboard(); toast('All data deleted','warn');
   showCustomerModal();
