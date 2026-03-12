@@ -948,12 +948,8 @@ function onScanSuccess(rawValue, source) {
   document.getElementById('qty-field').value  = 1;
 
   // ── Price auto-fill ──
-  // BAKED_PRICELIST keys are uppercase already. sku is already .toUpperCase()
-  let autoPrice = null;
-  const pl = BAKED_PRICELIST;                    // direct const reference
-  if (sku in pl)                 autoPrice = pl[sku];
-  else if (rawValue.trim() in pl) autoPrice = pl[rawValue.trim()];
-
+  // Keys in BAKED_PRICELIST are uppercase. sku is already rawValue.trim().toUpperCase()
+  const autoPrice = (sku in BAKED_PRICELIST) ? BAKED_PRICELIST[sku] : null;
   const priceField = document.getElementById('price-field');
   if (autoPrice !== null && autoPrice > 0) {
     priceField.value = autoPrice;
@@ -965,24 +961,23 @@ function onScanSuccess(rawValue, source) {
     priceField.style.background  = '';
   }
 
-  // ── Debug banner (shows raw scan value so you can verify it matches SKU) ──
+  // ── Debug bar — shows raw scan + price result ──
   const dbg = document.getElementById('scan-debug-bar');
   if (dbg) {
-    const hit = autoPrice !== null;
     dbg.style.display = 'block';
-    dbg.style.background = hit ? '#0c1f14' : '#1f0c0c';
-    dbg.style.borderColor = hit ? 'var(--green)' : 'var(--red)';
-    dbg.innerHTML = '<span style="color:#6b7a7a;font-size:10px">RAW SCAN → </span>'
-      + '<span style="color:#e8eaea;font-size:12px">' + rawValue + '</span>'
-      + (hit ? ' <span style="color:var(--green);font-size:11px">✓ AED ' + autoPrice + '</span>'
-             : ' <span style="color:var(--red);font-size:11px">⚠ not in pricelist</span>');
+    dbg.style.background = (autoPrice > 0) ? '#0c1f14' : '#1f0c0c';
+    dbg.style.color = '#e8eaea';
+    dbg.innerHTML = '📷 <b>' + sku + '</b> → '
+      + ((autoPrice > 0)
+          ? '<span style="color:#22c55e">AED ' + autoPrice + '</span>'
+          : '<span style="color:#ef4444">no price (not in pricelist)</span>');
   }
-  console.log('[Scan] raw:', JSON.stringify(rawValue), '| sku:', sku, '| price:', autoPrice);
+  console.log('[Scan]', JSON.stringify(sku), '→', autoPrice, '| pricelist size:', Object.keys(BAKED_PRICELIST).length);
   document.getElementById('btn-save').disabled = false;
   document.getElementById('entry-dot').classList.remove('off');
   if (navigator.vibrate) navigator.vibrate(120);
   playBeep('scan'); toast('✓ '+sku);
-  if (settings.autoSave && source==='live') { saveEntry(true); return; }
+  if (settings.autoSave && source==='live') { saveEntryAutoSave(); return; }
   setTimeout(()=>document.getElementById('price-field').focus(),150);
 }
 
@@ -1004,6 +999,30 @@ function useManualSKU() {
 // ═══════════════════════════════════════════════════
 // Pending entry waiting for duplicate decision
 let _pendingEntry = null;
+
+// Auto-save version: checks duplicates (shows modal if dup), but no toast if clean save
+function saveEntryAutoSave() {
+  if (!activeSession) { showCustomerModal(); return; }
+  const sku   = document.getElementById('sku-field').value.trim().toUpperCase();
+  const qty   = parseInt(document.getElementById('qty-field').value,10)||1;
+  const price = parseFloat(document.getElementById('price-field').value)||0;
+  const note  = (document.getElementById('note-field').value||'').trim();
+  if (!sku) return;
+  const rec    = activeSession.records;
+  const dupIdx = rec.findIndex(r => r.sku === sku);
+  if (dupIdx !== -1) {
+    // Duplicate found — pause auto-save and show modal (same as manual save)
+    const existing = rec[dupIdx];
+    document.getElementById('dup-sku-label').textContent = sku;
+    document.getElementById('dup-existing-info').textContent =
+      'Existing: qty ' + existing.qty + ' · price AED ' + (existing.customer_price || 0);
+    document.getElementById('dup-modal').style.display = 'flex';
+    _pendingEntry = {sku, qty, price, note, silent: true};
+    return;
+  }
+  // No duplicate — save silently
+  commitSaveEntry(sku, qty, price, note, true, false);
+}
 
 function saveEntry(silent=false) {
   if (!activeSession) { showCustomerModal(); return; }
