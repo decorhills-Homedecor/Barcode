@@ -744,7 +744,7 @@ function logout() {
   stopLive();
   google.accounts.id.disableAutoSelect();
   localStorage.removeItem(USER_CACHE_KEY);
-  priceMap      = {};
+  priceMap      = {...BAKED_PRICELIST};  // keep prices ready for next login
   currentUser   = null;
   activeSession = null;
   document.querySelector('.google-btn').classList.remove('hidden');
@@ -966,25 +966,33 @@ function onScanSuccess(rawValue, source) {
   } else { setSS('photo','ss-success','✓ SKU: '+sku); }
   document.getElementById('sku-field').value   = sku;
   document.getElementById('qty-field').value   = 1;
-  // Auto-fill price from pricelist if available
-  // Try exact match, then uppercase, then lowercase
-  const autoPrice = priceMap[sku] !== undefined ? priceMap[sku]
-                  : priceMap[sku.toUpperCase()] !== undefined ? priceMap[sku.toUpperCase()]
-                  : priceMap[sku.toLowerCase()] !== undefined ? priceMap[sku.toLowerCase()]
-                  : null;
+  // Auto-fill price — always use BAKED_PRICELIST directly as source of truth
+  // Try exact match (sku is already .toUpperCase()), then also check raw input
+  const lookupMap = (Object.keys(BAKED_PRICELIST).length > 0) ? BAKED_PRICELIST : priceMap;
+  let autoPrice = null;
+  if (sku in lookupMap)                    autoPrice = lookupMap[sku];
+  else if (sku.toUpperCase() in lookupMap) autoPrice = lookupMap[sku.toUpperCase()];
+  else if (sku.toLowerCase() in lookupMap) autoPrice = lookupMap[sku.toLowerCase()];
+  // Also try stripping any prefix that Odoo might add to QR codes (e.g. "LOT:" or URLs)
+  if (autoPrice === null) {
+    const parts = sku.split(/[\s:\|\-\/]/).filter(p=>p.length>2);
+    for (const part of parts) {
+      if (part in lookupMap) { autoPrice = lookupMap[part]; break; }
+    }
+  }
   const priceField = document.getElementById('price-field');
-  if (autoPrice !== null) {
+  if (autoPrice !== null && autoPrice > 0) {
     priceField.value = autoPrice;
     priceField.style.borderColor = 'var(--green)';
     priceField.style.background  = '#0c1f14';
-    priceField.title = '✓ Price from pricelist';
+    priceField.title = '✓ Price: AED ' + autoPrice;
   } else {
     priceField.value = '';
     priceField.style.borderColor = '';
     priceField.style.background  = '';
-    priceField.title = '';
+    priceField.title = autoPrice === 0 ? 'Price is 0 in pricelist' : 'SKU not in pricelist';
   }
-  console.log('[Pricelist] SKU:', sku, '| Price:', autoPrice, '| Total SKUs in map:', Object.keys(priceMap).length);
+  console.log('[Price] SKU:', sku, '→ Price:', autoPrice, '| Map size:', Object.keys(lookupMap).length);
   document.getElementById('btn-save').disabled = false;
   document.getElementById('entry-dot').classList.remove('off');
   if (navigator.vibrate) navigator.vibrate(120);
