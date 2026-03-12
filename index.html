@@ -315,28 +315,6 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
   <!-- Toast -->
   <div id="toast"></div>
 
-  <!-- Duplicate SKU modal -->
-  <div id="dup-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:600;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)">
-    <div style="background:var(--surface);border:2px solid var(--amber);border-radius:16px;padding:24px 20px;width:100%;max-width:360px;text-align:center">
-      <div style="font-size:40px;margin-bottom:12px">⚠️</div>
-      <div style="font-size:19px;font-weight:900;color:var(--amber);margin-bottom:8px">Duplicate SKU</div>
-      <div style="font-family:var(--mono);font-size:13px;color:var(--muted);margin-bottom:6px">This SKU already exists in the session:</div>
-      <div style="font-family:var(--mono);font-size:16px;color:var(--text);font-weight:700;background:var(--panel);padding:10px;border-radius:8px;margin-bottom:8px" id="dup-sku-label">—</div>
-      <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:20px" id="dup-existing-info">Existing: qty — · price —</div>
-      <div style="display:flex;gap:10px">
-        <button onclick="dupAction('merge')" style="flex:1;padding:13px;background:var(--green);border:none;border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;font-weight:700;color:#000;cursor:pointer">
-          ➕ Add Qty
-        </button>
-        <button onclick="dupAction('new')" style="flex:1;padding:13px;background:var(--blue);border:none;border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;font-weight:700;color:#000;cursor:pointer">
-          🆕 New Row
-        </button>
-        <button onclick="dupAction('cancel')" style="flex:1;padding:13px;background:var(--panel);border:1px solid var(--border);border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;font-weight:700;color:var(--muted);cursor:pointer">
-          ✕ Cancel
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Customer modal -->
   <div id="customer-modal">
     <div class="modal-box">
@@ -417,6 +395,8 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
       <div class="card-header"><div class="dot off green" id="entry-dot"></div>ENTRY DETAILS</div>
       <div class="card-body">
         <div class="field-group">
+          <!-- Raw scan debug bar -->
+          <div id="scan-debug-bar" style="display:none;border:1px solid;border-radius:6px;padding:6px 10px;margin-bottom:6px;font-family:monospace;font-size:11px;line-height:1.6"></div>
           <label>SKU</label>
           <input type="text" id="sku-field" placeholder="Awaiting scan…" class="highlight" autocapitalize="characters" autocomplete="off">
         </div>
@@ -964,35 +944,40 @@ function onScanSuccess(rawValue, source) {
     document.getElementById('live-wrap').classList.add('scan-flash');
     setSS('live','ss-success','✓ SCANNED: '+sku);
   } else { setSS('photo','ss-success','✓ SKU: '+sku); }
-  document.getElementById('sku-field').value   = sku;
-  document.getElementById('qty-field').value   = 1;
-  // Auto-fill price — always use BAKED_PRICELIST directly as source of truth
-  // Try exact match (sku is already .toUpperCase()), then also check raw input
-  const lookupMap = (Object.keys(BAKED_PRICELIST).length > 0) ? BAKED_PRICELIST : priceMap;
+  document.getElementById('sku-field').value = sku;
+  document.getElementById('qty-field').value  = 1;
+
+  // ── Price auto-fill ──
+  // BAKED_PRICELIST keys are uppercase already. sku is already .toUpperCase()
   let autoPrice = null;
-  if (sku in lookupMap)                    autoPrice = lookupMap[sku];
-  else if (sku.toUpperCase() in lookupMap) autoPrice = lookupMap[sku.toUpperCase()];
-  else if (sku.toLowerCase() in lookupMap) autoPrice = lookupMap[sku.toLowerCase()];
-  // Also try stripping any prefix that Odoo might add to QR codes (e.g. "LOT:" or URLs)
-  if (autoPrice === null) {
-    const parts = sku.split(/[\s:\|\-\/]/).filter(p=>p.length>2);
-    for (const part of parts) {
-      if (part in lookupMap) { autoPrice = lookupMap[part]; break; }
-    }
-  }
+  const pl = BAKED_PRICELIST;                    // direct const reference
+  if (sku in pl)                 autoPrice = pl[sku];
+  else if (rawValue.trim() in pl) autoPrice = pl[rawValue.trim()];
+
   const priceField = document.getElementById('price-field');
   if (autoPrice !== null && autoPrice > 0) {
     priceField.value = autoPrice;
     priceField.style.borderColor = 'var(--green)';
     priceField.style.background  = '#0c1f14';
-    priceField.title = '✓ Price: AED ' + autoPrice;
   } else {
     priceField.value = '';
     priceField.style.borderColor = '';
     priceField.style.background  = '';
-    priceField.title = autoPrice === 0 ? 'Price is 0 in pricelist' : 'SKU not in pricelist';
   }
-  console.log('[Price] SKU:', sku, '→ Price:', autoPrice, '| Map size:', Object.keys(lookupMap).length);
+
+  // ── Debug banner (shows raw scan value so you can verify it matches SKU) ──
+  const dbg = document.getElementById('scan-debug-bar');
+  if (dbg) {
+    const hit = autoPrice !== null;
+    dbg.style.display = 'block';
+    dbg.style.background = hit ? '#0c1f14' : '#1f0c0c';
+    dbg.style.borderColor = hit ? 'var(--green)' : 'var(--red)';
+    dbg.innerHTML = '<span style="color:#6b7a7a;font-size:10px">RAW SCAN → </span>'
+      + '<span style="color:#e8eaea;font-size:12px">' + rawValue + '</span>'
+      + (hit ? ' <span style="color:var(--green);font-size:11px">✓ AED ' + autoPrice + '</span>'
+             : ' <span style="color:var(--red);font-size:11px">⚠ not in pricelist</span>');
+  }
+  console.log('[Scan] raw:', JSON.stringify(rawValue), '| sku:', sku, '| price:', autoPrice);
   document.getElementById('btn-save').disabled = false;
   document.getElementById('entry-dot').classList.remove('off');
   if (navigator.vibrate) navigator.vibrate(120);
@@ -1514,5 +1499,21 @@ const styleEl=document.createElement('style');
 styleEl.textContent='@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}';
 document.head.appendChild(styleEl);
 </script>
+<!-- ⚠️ Duplicate SKU modal — body level so position:fixed always works -->
+<div id="dup-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9000;display:none;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#1a2020;border:2px solid #f5a623;border-radius:16px;padding:24px 20px;width:100%;max-width:340px;text-align:center;box-shadow:0 0 60px rgba(0,0,0,.8)">
+    <div style="font-size:40px;margin-bottom:10px">⚠️</div>
+    <div style="font-size:18px;font-weight:900;color:#f5a623;margin-bottom:8px;font-family:sans-serif">Duplicate SKU</div>
+    <div style="font-family:monospace;font-size:12px;color:#6b7a7a;margin-bottom:8px">This SKU is already in the session:</div>
+    <div style="font-family:monospace;font-size:15px;color:#e8eaea;font-weight:700;background:#1e2424;padding:10px;border-radius:8px;margin-bottom:6px;word-break:break-all" id="dup-sku-label">—</div>
+    <div style="font-family:monospace;font-size:12px;color:#6b7a7a;margin-bottom:18px" id="dup-existing-info">Existing: qty — · price —</div>
+    <div style="display:flex;gap:8px;flex-direction:column">
+      <button onclick="dupAction('merge')" style="width:100%;padding:14px;background:#22c55e;border:none;border-radius:10px;font-size:16px;font-weight:700;color:#000;cursor:pointer;font-family:sans-serif">➕ Add Qty to Existing</button>
+      <button onclick="dupAction('new')" style="width:100%;padding:14px;background:#38bdf8;border:none;border-radius:10px;font-size:16px;font-weight:700;color:#000;cursor:pointer;font-family:sans-serif">🆕 Save as New Row</button>
+      <button onclick="dupAction('cancel')" style="width:100%;padding:12px;background:transparent;border:1px solid #2e3838;border-radius:10px;font-size:15px;font-weight:700;color:#6b7a7a;cursor:pointer;font-family:sans-serif">✕ Cancel</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
