@@ -615,8 +615,19 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
       <div class="card" id="count-location-entry-card" style="display:none">
         <div class="card-header"><div class="dot" style="background:var(--blue)"></div>SET LOCATION</div>
         <div class="card-body">
-          <p style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:12px">Scan the location QR label, or type the Odoo location name (e.g. WH/Stock, WH/Shelf-A).</p>
-          <input type="text" id="count-loc-input" placeholder="e.g. WH/Stock" class="field-input" style="margin-bottom:12px;font-family:var(--mono);font-size:16px;width:100%">
+          <p style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:12px">Scan the location QR label or type the Odoo location name (e.g. WH/Stock).</p>
+          <!-- Location live scanner -->
+          <div id="loc-live-wrap" style="display:none;position:relative;width:100%;border-radius:8px;overflow:hidden;margin-bottom:10px;background:#000">
+            <video id="loc-live-video" autoplay playsinline muted style="width:100%;display:block;max-height:180px;object-fit:cover"></video>
+            <div class="scan-overlay"><div class="bl"></div><div class="br"></div><div class="scan-beam"></div></div>
+          </div>
+          <div id="loc-live-status" class="scan-status ss-ready" style="margin-bottom:10px;display:none">● Point camera at location label</div>
+          <div class="btn-row" style="margin-bottom:12px">
+            <button class="btn btn-ghost" id="btn-loc-scan" onclick="startLocLive()" style="flex:1">📷 &nbsp;Scan Location</button>
+            <button class="btn btn-ghost hidden" id="btn-loc-stop" onclick="stopLocLive()" style="flex:1;color:var(--red)">■ &nbsp;Stop</button>
+          </div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:6px;letter-spacing:1px">LOCATION NAME</div>
+          <input type="text" id="count-loc-input" placeholder="e.g. WH/Stock" class="field-input" style="margin-bottom:14px;font-family:var(--mono);font-size:16px;width:100%">
           <div class="btn-row">
             <button class="btn btn-ghost" onclick="cancelCountStart()" style="flex:1">Cancel</button>
             <button class="btn btn-amber" onclick="confirmCountLocation()" style="flex:1">✓ &nbsp;Start Counting</button>
@@ -648,32 +659,43 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
       <div class="card">
         <div class="card-header"><div class="dot green"></div>SCAN ITEM</div>
         <div class="card-body">
-          <!-- Live scanner for count -->
-          <div id="count-live-wrap" style="display:none;position:relative;width:100%;border-radius:8px;overflow:hidden;margin-bottom:10px;background:#000">
-            <video id="count-live-video" autoplay playsinline muted style="width:100%;display:block;max-height:200px;object-fit:cover"></video>
-            <div class="scan-overlay"><div class="bl"></div><div class="br"></div><div class="scan-beam"></div></div>
+
+          <!-- Step 1: Scan -->
+          <div style="margin-bottom:14px">
+            <!-- Live video (hidden until scanning) -->
+            <div id="count-live-wrap" style="display:none;position:relative;width:100%;border-radius:8px;overflow:hidden;margin-bottom:10px;background:#000">
+              <video id="count-live-video" autoplay playsinline muted style="width:100%;display:block;max-height:200px;object-fit:cover"></video>
+              <div class="scan-overlay"><div class="bl"></div><div class="br"></div><div class="scan-beam"></div></div>
+            </div>
+            <div id="count-live-status" class="scan-status ss-ready" style="margin-bottom:10px">● Tap SCAN to scan an item</div>
+            <div class="btn-row">
+              <button class="btn btn-amber" id="btn-count-start" onclick="startCountLive()" style="font-size:17px;padding:15px">📷 &nbsp;Scan Item</button>
+              <button class="btn btn-ghost hidden" id="btn-count-stop" onclick="stopCountLive()" style="flex:0 0 auto;padding:15px 20px">■</button>
+            </div>
           </div>
-          <div id="count-live-status" class="scan-status ss-ready" style="margin-bottom:8px">● Tap START to scan items</div>
-          <div class="btn-row mt-10" style="margin-bottom:10px">
-            <button class="btn btn-amber" id="btn-count-start" onclick="startCountLive()">▶ &nbsp;Start Scanner</button>
-            <button class="btn btn-ghost hidden" id="btn-count-stop" onclick="stopCountLive()">■ &nbsp;Stop</button>
-          </div>
-          <!-- Internal Ref display (resolved from scan) -->\n          <div style="margin-bottom:10px">
+
+          <!-- Step 2: Ref + Qty (shown after scan) -->
+          <div id="count-ref-section" style="display:none">
             <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:4px;letter-spacing:1px">INTERNAL REFERENCE</div>
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:16px;font-weight:700;color:var(--amber);min-height:40px;word-break:break-all" id="count-ref-display">— scan an item —</div>
+            <div style="background:var(--panel);border:2px solid var(--green);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:18px;font-weight:900;color:var(--green);margin-bottom:14px;word-break:break-all" id="count-ref-display">—</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+              <button class="btn btn-ghost btn-sm" onclick="adjCountQty(-1)" style="width:auto;padding:12px 22px;font-size:22px;font-weight:900">−</button>
+              <input type="number" id="count-qty-field" value="1" min="0" inputmode="numeric" class="field-input" style="flex:1;text-align:center;font-size:28px;font-weight:900;padding:12px">
+              <button class="btn btn-ghost btn-sm" onclick="adjCountQty(1)" style="width:auto;padding:12px 22px;font-size:22px;font-weight:900">+</button>
+            </div>
+            <button class="btn btn-amber" onclick="saveCountEntry()" style="font-size:17px;padding:15px;margin-bottom:8px">✓ &nbsp;Save Count</button>
+            <button class="btn btn-ghost" onclick="clearCountScanState()" style="font-size:13px;padding:10px;color:var(--muted)">✕ &nbsp;Cancel</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-            <div style="font-family:var(--mono);font-size:12px;color:var(--muted);flex-shrink:0">QTY</div>
-            <button class="btn btn-ghost btn-sm" onclick="adjCountQty(-1)" style="width:auto;padding:10px 18px;font-size:20px;font-weight:900">−</button>
-            <input type="number" id="count-qty-field" value="1" min="0" inputmode="numeric" class="field-input" style="flex:1;text-align:center;font-size:24px;font-weight:900;padding:10px">
-            <button class="btn btn-ghost btn-sm" onclick="adjCountQty(1)"  style="width:auto;padding:10px 18px;font-size:20px;font-weight:900">+</button>
+
+          <!-- Manual fallback (always visible) -->
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:6px;letter-spacing:1px">MANUAL ENTRY (FALLBACK)</div>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="count-sku-field" placeholder="Type internal ref…" autocapitalize="characters" autocomplete="off" class="field-input" style="flex:1;font-family:var(--mono);font-size:14px">
+              <button class="btn btn-ghost btn-sm" onclick="useManualCountSKU()" style="width:auto;padding:10px 14px">USE</button>
+            </div>
           </div>
-          <!-- Manual SKU entry -->
-          <div style="display:flex;gap:8px;margin-bottom:12px">
-            <input type="text" id="count-sku-field" placeholder="Type internal ref…" autocapitalize="characters" autocomplete="off" class="field-input" style="flex:1;font-family:var(--mono);font-size:14px">
-            <button class="btn btn-ghost btn-sm" onclick="useManualCountSKU()" style="width:auto;padding:10px 14px">USE</button>
-          </div>
-          <button class="btn btn-amber" onclick="saveCountEntry()" style="font-size:17px;padding:15px;margin-bottom:10px">✓ &nbsp;Save Count</button>
+
           <div id="count-scan-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;min-height:16px;text-align:center"></div>
         </div>
       </div>
@@ -1787,10 +1809,12 @@ function startCountSession() {
 }
 
 function cancelCountStart() {
+  stopLocLive();
   document.getElementById('count-location-entry-card').style.display = 'none';
 }
 
 function confirmCountLocation() {
+  stopLocLive();
   const val = document.getElementById('count-loc-input').value.trim();
   if (!val) { toast('Enter a location name', 'error'); return; }
   countSession = { id: 'cnt_' + Date.now(), location: val, records: [], start: formatTimestamp(new Date()) };
@@ -1817,19 +1841,22 @@ function endCountSession() {
 }
 
 // ── Count Live Scanner ──────────────────────────────
+// ── Shared camera helpers ──────────────────────────
 let countLiveStream = null;
 let countLiveTimer  = null;
 let countLiveActive = false;
+let locLiveStream   = null;
+let locLiveTimer    = null;
+let locLiveActive   = false;
 
-async function startCountLive() {
-  if (countLiveActive) return;
-  const statusEl = document.getElementById('count-live-status');
-  const startBtn = document.getElementById('btn-count-start');
-  const stopBtn  = document.getElementById('btn-count-stop');
-  if (statusEl) statusEl.className = 'scan-status ss-reading';
-  if (statusEl) statusEl.textContent = '⏳ Opening camera…';
+async function _openCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, onDetected) {
+  const statusEl = document.getElementById(statusId);
+  const startBtn = document.getElementById(startBtnId);
+  const stopBtn  = document.getElementById(stopBtnId);
+  const video    = document.getElementById(videoId);
+  const wrap     = document.getElementById(wrapId);
+  if (statusEl) { statusEl.style.display=''; statusEl.className='scan-status ss-reading'; statusEl.textContent='⏳ Opening camera…'; }
   if (startBtn) startBtn.disabled = true;
-  // BarcodeDetector optional — jsQR is primary
   let detector = null;
   try {
     if (typeof BarcodeDetector !== 'undefined') {
@@ -1844,26 +1871,22 @@ async function startCountLive() {
       try { stream = await navigator.mediaDevices.getUserMedia({video:true,audio:false}); } catch(e2){err=e2;}
     }
     if (!stream) {
-      const msgs = {NotAllowedError:'Camera denied — allow camera in settings.',NotFoundError:'No camera found.',NotReadableError:'Camera in use by another app.'};
+      const msgs = {NotAllowedError:'Camera denied — allow in browser settings.',NotFoundError:'No camera found.',NotReadableError:'Camera in use by another app.'};
       if (statusEl) { statusEl.className='scan-status ss-error'; statusEl.textContent='✗ '+(msgs[err.name]||err.message); }
-      if (startBtn) startBtn.disabled=false; return;
+      if (startBtn) startBtn.disabled=false; return null;
     }
   }
-  countLiveStream = stream;
-  const video = document.getElementById('count-live-video');
-  const wrap  = document.getElementById('count-live-wrap');
   video.srcObject = stream;
   await new Promise(res => { video.onloadedmetadata=()=>{video.play();res();}; setTimeout(res,3000); });
   if (wrap)  wrap.style.display = '';
   if (startBtn) { startBtn.disabled=false; startBtn.classList.add('hidden'); }
   if (stopBtn)  stopBtn.classList.remove('hidden');
-  if (statusEl) { statusEl.className='scan-status ss-live'; statusEl.textContent='● SCANNING — hold QR in frame'; }
-  countLiveActive = true;
+  if (statusEl) { statusEl.className='scan-status ss-live'; statusEl.textContent='● SCANNING — hold label in frame'; }
   const canvas = document.getElementById('scan-canvas');
   const ctx    = canvas.getContext('2d');
   const useJsQR = (typeof jsQR === 'function');
-  countLiveTimer = setInterval(async () => {
-    if (!countLiveActive || video.readyState < 2) return;
+  const timer = setInterval(async () => {
+    if (video.readyState < 2) return;
     const w = video.videoWidth, h = video.videoHeight;
     if (!w || !h) return;
     canvas.width = w; canvas.height = h;
@@ -1872,56 +1895,98 @@ async function startCountLive() {
       try {
         const imgData = ctx.getImageData(0, 0, w, h);
         const result  = jsQR(imgData.data, w, h, {inversionAttempts:'dontInvert'});
-        if (result && result.data) { onCountScanDetected(result.data); return; }
+        if (result && result.data) { onDetected(result.data); return; }
       } catch(e) {}
     }
     if (detector) {
       try {
         const codes = await detector.detect(canvas);
-        if (codes.length > 0) onCountScanDetected(codes[0].rawValue);
+        if (codes.length > 0) { onDetected(codes[0].rawValue); return; }
       } catch(e) {}
     }
   }, 250);
+  return { stream, timer };
+}
+
+function _closeCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, readyMsg) {
+  const video    = document.getElementById(videoId);
+  const wrap     = document.getElementById(wrapId);
+  const startBtn = document.getElementById(startBtnId);
+  const stopBtn  = document.getElementById(stopBtnId);
+  const statusEl = document.getElementById(statusId);
+  if (video) { video.srcObject=null; }
+  if (wrap)  wrap.style.display = 'none';
+  if (startBtn) { startBtn.disabled=false; startBtn.classList.remove('hidden'); }
+  if (stopBtn)  stopBtn.classList.add('hidden');
+  if (statusEl) { statusEl.className='scan-status ss-ready'; statusEl.textContent=readyMsg; }
+}
+
+// ── Location scanner (one-shot) ────────────────────
+async function startLocLive() {
+  if (locLiveActive) return;
+  locLiveActive = true;
+  const result = await _openCamera('loc-live-video','loc-live-wrap','loc-live-status','btn-loc-scan','btn-loc-stop', (raw) => {
+    stopLocLive();
+    document.getElementById('count-loc-input').value = raw;
+    document.getElementById('count-loc-input').focus();
+    toast('✓ Location scanned — confirm or edit');
+  });
+  if (!result) { locLiveActive = false; return; }
+  locLiveStream = result.stream;
+  locLiveTimer  = result.timer;
+}
+
+function stopLocLive() {
+  if (locLiveTimer)  { clearInterval(locLiveTimer);  locLiveTimer=null; }
+  if (locLiveStream) { locLiveStream.getTracks().forEach(t=>t.stop()); locLiveStream=null; }
+  locLiveActive = false;
+  _closeCamera('loc-live-video','loc-live-wrap','loc-live-status','btn-loc-scan','btn-loc-stop','● Tap Scan Location to scan');
+}
+
+// ── Count product scanner (one-shot) ───────────────
+async function startCountLive() {
+  if (countLiveActive) return;
+  countLiveActive = true;
+  // Reset ref section while scanning
+  document.getElementById('count-ref-section').style.display = 'none';
+  const result = await _openCamera('count-live-video','count-live-wrap','count-live-status','btn-count-start','btn-count-stop', (raw) => {
+    onCountScanDetected(raw);
+  });
+  if (!result) { countLiveActive = false; return; }
+  countLiveStream = result.stream;
+  countLiveTimer  = result.timer;
 }
 
 function stopCountLive() {
-  if (countLiveTimer) { clearInterval(countLiveTimer); countLiveTimer=null; }
+  if (countLiveTimer)  { clearInterval(countLiveTimer);  countLiveTimer=null; }
   if (countLiveStream) { countLiveStream.getTracks().forEach(t=>t.stop()); countLiveStream=null; }
   countLiveActive = false;
-  const video = document.getElementById('count-live-video');
-  const wrap  = document.getElementById('count-live-wrap');
-  const startBtn = document.getElementById('btn-count-start');
-  const stopBtn  = document.getElementById('btn-count-stop');
-  const statusEl = document.getElementById('count-live-status');
-  if (video) { video.srcObject=null; }
-  if (wrap)  wrap.style.display = 'none';
-  if (startBtn) { startBtn.classList.remove('hidden'); }
-  if (stopBtn)  stopBtn.classList.add('hidden');
-  if (statusEl) { statusEl.className='scan-status ss-ready'; statusEl.textContent='● Tap START to scan items'; }
+  _closeCamera('count-live-video','count-live-wrap','count-live-status','btn-count-start','btn-count-stop','● Tap SCAN to scan an item');
 }
 
-let lastCountScan = '';
-let lastCountScanTime = 0;
-
 function onCountScanDetected(raw) {
-  const now = Date.now();
-  if (raw === lastCountScan && now - lastCountScanTime < 2000) return; // cooldown
-  lastCountScan = raw;
-  lastCountScanTime = now;
+  // Stop camera immediately — one-shot
+  stopCountLive();
   // Resolve to internal reference
   const ref = resolveToRef(raw);
   if (!ref) {
-    document.getElementById('count-ref-display').textContent = '⚠ Not found: ' + raw.substring(0, 30);
-    beep(300, 0.2, 'sawtooth');
-    return;
+    const statusEl = document.getElementById('count-live-status');
+    if (statusEl) { statusEl.style.display=''; statusEl.className='scan-status ss-error'; statusEl.textContent='✗ Not found: '+raw.substring(0,40)+' — type ref manually'; }
+    playBeep('scan'); return;
   }
+  // Fill ref display and show ref+qty section
   document.getElementById('count-ref-display').textContent = ref;
-  document.getElementById('count-sku-field').value = ref;
-  beep(880, 0.08);
-  // Flash ref display
+  document.getElementById('count-sku-field').value = '';
+  document.getElementById('count-qty-field').value = 1;
+  document.getElementById('count-ref-section').style.display = '';
+  // Flash
   const el = document.getElementById('count-ref-display');
-  el.style.background = '#1a3a1a';
-  setTimeout(() => { el.style.background = 'var(--panel)'; }, 600);
+  el.style.background = '#0c2a18';
+  setTimeout(() => { el.style.background = 'var(--panel)'; }, 700);
+  playBeep('scan');
+  if (navigator.vibrate) navigator.vibrate(120);
+  // Focus qty for quick adjustment
+  setTimeout(() => document.getElementById('count-qty-field').focus(), 150);
 }
 
 // ── Location QR scan ──────────────────────────────
@@ -1941,14 +2006,19 @@ async function handleCountLocationPhoto(e) {
 // ── Product scanning ──────────────────────────────
 function clearCountScanState() {
   countScanBuffer = '';
+  const refSection = document.getElementById('count-ref-section');
+  if (refSection) refSection.style.display = 'none';
   const refEl = document.getElementById('count-ref-display');
-  if (refEl) { refEl.textContent = '— scan an item —'; refEl.style.color = 'var(--amber)'; }
+  if (refEl) { refEl.textContent = '—'; refEl.style.background = 'var(--panel)'; }
   const qtyEl = document.getElementById('count-qty-field');
   if (qtyEl) qtyEl.value = 1;
   const skuEl = document.getElementById('count-sku-field');
   if (skuEl) skuEl.value = '';
   const stEl = document.getElementById('count-scan-status');
   if (stEl) stEl.textContent = '';
+  // Reset scan button status
+  const statusEl = document.getElementById('count-live-status');
+  if (statusEl) { statusEl.className='scan-status ss-ready'; statusEl.textContent='● Tap SCAN to scan an item'; }
 }
 
 async function handleCountProductPhoto(e) {
@@ -1981,9 +2051,11 @@ function useManualCountSKU() {
   if (!v) { toast('Enter an internal reference', 'error'); return; }
   countScanBuffer = v;
   document.getElementById('count-ref-display').textContent = v;
-  document.getElementById('count-ref-display').style.color = 'var(--amber)';
-  document.getElementById('count-sku-field').value = '';
+  document.getElementById('count-ref-display').style.background = 'var(--panel)';
+  document.getElementById('count-qty-field').value = 1;
+  document.getElementById('count-ref-section').style.display = '';
   document.getElementById('count-scan-status').textContent = '';
+  setTimeout(() => document.getElementById('count-qty-field').focus(), 100);
   toast('\u2713 ' + v);
 }
 
@@ -1994,8 +2066,9 @@ function adjCountQty(delta) {
 
 function saveCountEntry() {
   if (!countSession) return;
-  const fieldVal = (document.getElementById('count-sku-field').value || '').trim().toUpperCase();
-  const ref = countScanBuffer || fieldVal || (document.getElementById('count-ref-display').textContent !== '— scan an item —' ? document.getElementById('count-ref-display').textContent : '');
+  // ref comes from: live scan (count-ref-display) OR manual entry (countScanBuffer)
+  const dispVal = (document.getElementById('count-ref-display').textContent || '').trim();
+  const ref = (countScanBuffer || dispVal).toUpperCase().replace(/^—$/, '').trim();
   const qty = parseInt(document.getElementById('count-qty-field').value) || 0;
   if (!ref) { toast('Scan or enter an item first', 'error'); return; }
   countSession.records = countSession.records || [];
