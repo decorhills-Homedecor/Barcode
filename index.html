@@ -347,6 +347,27 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
   <!-- ── SCAN PAGE ── -->
   <div id="page-scan" class="page active">
 
+    <!-- IDLE STATE — no active session -->
+    <div id="scan-idle-state" style="display:none;padding:20px 0">
+      <div style="text-align:center;padding:40px 20px 30px">
+        <div style="font-size:56px;margin-bottom:12px">📋</div>
+        <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:6px">No Active Session</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:28px">Tap NEW to start scanning for a customer</div>
+        <button class="btn btn-amber" style="max-width:280px;margin:0 auto;font-size:20px;padding:18px" onclick="showCustomerModal()">
+          ＋ &nbsp;New Session
+        </button>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="dot off"></div>RECENT SESSIONS</div>
+        <div class="card-body" style="padding:0">
+          <div id="scan-idle-history" style="font-family:var(--mono);font-size:12px;color:var(--muted);padding:14px">No sessions yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACTIVE STATE — session in progress -->
+    <div id="scan-active-state">
+
     <div id="last-scan-banner">
       <div class="banner-check">✅</div>
       <div>
@@ -449,6 +470,7 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
       <div class="tbl-footer">Rows: <span id="count-val">0</span> &nbsp;|&nbsp; Total: AED <span id="total-val">0.00</span></div>
     </div>
 
+  </div><!-- /scan-active-state -->
   </div><!-- /page-scan -->
 
   <!-- ── DASHBOARD PAGE ── -->
@@ -594,77 +616,105 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
   <!-- ── COUNT PAGE ── -->
   <div id="page-count" class="page">
 
-    <!-- Step 1: Location -->
-    <div class="card">
-      <div class="card-header"><div class="dot off" id="count-loc-dot"></div>STEP 1 — LOCATION</div>
-      <div class="card-body">
-        <div id="count-loc-set-ui">
-          <p style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:10px">Scan the location QR or type the location name (e.g. WH/Stock).</p>
-          <input type="text" id="count-loc-input" placeholder="WH/Stock" class="field-input" style="margin-bottom:10px;font-family:var(--mono)">
+    <!-- IDLE: no active count session -->
+    <div id="count-idle-state">
+      <div style="text-align:center;padding:40px 20px 24px">
+        <div style="font-size:56px;margin-bottom:12px">🏭</div>
+        <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:6px">Inventory Count</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:28px">One session per warehouse location.<br>Start a session, scan all items, then End.</div>
+        <button class="btn btn-amber" style="max-width:280px;margin:0 auto;font-size:18px;padding:17px" onclick="startCountSession()">
+          ＋ &nbsp;New Count Session
+        </button>
+      </div>
+      <!-- Location Entry (shown after tapping New) -->
+      <div class="card" id="count-location-entry-card" style="display:none">
+        <div class="card-header"><div class="dot" style="background:var(--blue)"></div>SET LOCATION</div>
+        <div class="card-body">
+          <p style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:12px">Scan the location QR label, or type the Odoo location name (e.g. WH/Stock, WH/Shelf-A).</p>
+          <input type="text" id="count-loc-input" placeholder="e.g. WH/Stock" class="field-input" style="margin-bottom:12px;font-family:var(--mono);font-size:16px;width:100%">
           <div class="btn-row">
-            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('count-loc-photo-input').click()">📷 Scan QR</button>
-            <button class="btn btn-amber btn-sm" onclick="setCountLocation()">✓ Set Location</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('count-loc-photo-input').click()" style="flex:1">📷 &nbsp;Scan QR</button>
+            <button class="btn btn-amber" onclick="confirmCountLocation()" style="flex:1">✓ &nbsp;Start Counting</button>
           </div>
           <input type="file" id="count-loc-photo-input" accept="image/*" capture="environment" style="display:none" onchange="handleCountLocationPhoto(event)">
+          <button class="btn btn-ghost" onclick="cancelCountStart()" style="margin-top:8px;font-size:13px;color:var(--muted)">Cancel</button>
         </div>
-        <div id="count-loc-display" style="display:none">
-          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:4px">LOCATION SET</div>
-          <div style="font-size:18px;font-weight:900;color:var(--amber);margin-bottom:4px;word-break:break-all" id="count-loc-name-display">—</div>
-          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:10px" id="count-loc-barcode-display"></div>
-          <button class="btn btn-ghost btn-sm" onclick="changeCountLocation()" style="width:auto;font-size:12px">✎ Change Location</button>
+      </div>
+      <!-- Past Count Sessions -->
+      <div class="card">
+        <div class="card-header"><div class="dot off"></div>PAST COUNT SESSIONS</div>
+        <div class="card-body" style="padding:0">
+          <div id="count-history-list" style="font-family:var(--mono);font-size:12px;color:var(--muted);padding:14px">No count sessions yet</div>
         </div>
       </div>
     </div>
 
-    <!-- Step 2: Scan Products -->
-    <div class="card" id="count-scan-card" style="display:none">
-      <div class="card-header"><div class="dot green"></div>STEP 2 — SCAN PRODUCTS</div>
-      <div class="card-body">
-        <div style="display:flex;gap:8px;margin-bottom:10px">
-          <input type="text" id="count-sku-field" placeholder="SKU — auto-filled on scan" class="field-input" style="flex:1;font-family:var(--mono);font-size:13px">
-          <button class="btn btn-ghost btn-sm" onclick="clearCountFields()" style="width:auto;padding:10px 12px;font-size:16px" title="Clear">⌫</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <label style="font-family:var(--mono);font-size:12px;color:var(--muted);flex-shrink:0">QTY</label>
-          <button class="btn btn-ghost btn-sm" onclick="adjCountQty(-1)" style="width:auto;padding:10px 16px;font-size:18px;font-weight:900">−</button>
-          <input type="number" id="count-qty-field" value="1" min="0" class="field-input" style="flex:1;text-align:center;font-size:22px;font-weight:900;padding:10px">
-          <button class="btn btn-ghost btn-sm" onclick="adjCountQty(1)"  style="width:auto;padding:10px 16px;font-size:18px;font-weight:900">+</button>
-        </div>
-        <button class="btn btn-amber" onclick="saveCountEntry()" style="margin-bottom:10px">✓ &nbsp;Save Count</button>
-        <button class="btn btn-ghost" onclick="document.getElementById('count-photo-input').click()" style="font-size:15px">📷 &nbsp;Photo Scan</button>
-        <input type="file" id="count-photo-input" accept="image/*" capture="environment" style="display:none" onchange="handleCountProductPhoto(event)">
-        <div id="count-scan-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;min-height:18px;text-align:center"></div>
-      </div>
-    </div>
+    <!-- ACTIVE: location set, scanning in progress -->
+    <div id="count-active-state" style="display:none">
 
-    <!-- Records -->
-    <div class="card" id="count-records-card" style="display:none">
-      <div class="card-header">
-        <div class="dot green"></div>COUNT RECORDS
-        <span id="count-records-badge" style="margin-left:auto;background:var(--amber);color:#000;border-radius:4px;padding:1px 8px;font-size:10px;font-weight:900">0</span>
-      </div>
-      <div class="card-body" style="padding:0">
-        <div id="count-records-table"></div>
-      </div>
-    </div>
-
-    <!-- Export -->
-    <div class="card" id="count-export-card" style="display:none">
-      <div class="card-header"><div class="dot green"></div>EXPORT COUNT</div>
-      <div class="card-body">
-        <p style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8;margin-bottom:12px">
-          📄 <strong style="color:var(--text)">Sheet 1</strong> — Full count report (Location, SKU, Qty, Time)<br>
-          📋 <strong style="color:var(--text)">Sheet 2</strong> — Odoo inventory adjustment import
-        </p>
-        <button class="btn btn-drive" onclick="uploadCountSession()">☁ &nbsp;Upload to Google Drive</button>
-        <div id="count-upload-progress" class="upload-progress hidden" style="margin-top:10px">
-          <div class="progress-label" id="count-progress-label">Uploading…</div>
-          <div class="progress-bar-wrap"><div class="progress-bar" id="count-progress-bar"></div></div>
+      <!-- Location banner -->
+      <div style="background:linear-gradient(135deg,#1a2a1a,#0c1810);border:1px solid #2a5a2a;border-radius:var(--r);padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--green);letter-spacing:2px;margin-bottom:2px">COUNTING LOCATION</div>
+          <div style="font-size:17px;font-weight:900;color:var(--text);word-break:break-all" id="count-active-loc-name">—</div>
         </div>
-        <div class="divider"></div>
-        <button class="btn btn-ghost" onclick="clearCountSession()" style="border-color:var(--red);color:var(--red)">🗑 &nbsp;Clear Count Session</button>
+        <button onclick="endCountSession()" style="background:linear-gradient(135deg,#3a1010,#200808);border:1px solid #6a2020;color:#ef4444;font-family:var(--sans);font-size:13px;font-weight:700;padding:10px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;flex-shrink:0">■ &nbsp;End</button>
       </div>
-    </div>
+
+      <!-- Scan card -->
+      <div class="card">
+        <div class="card-header"><div class="dot green"></div>SCAN ITEM</div>
+        <div class="card-body">
+          <!-- Internal Ref display (resolved from scan) -->
+          <div style="margin-bottom:10px">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:4px;letter-spacing:1px">INTERNAL REFERENCE</div>
+            <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:16px;font-weight:700;color:var(--amber);min-height:40px;word-break:break-all" id="count-ref-display">— scan an item —</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="font-family:var(--mono);font-size:12px;color:var(--muted);flex-shrink:0">QTY</div>
+            <button class="btn btn-ghost btn-sm" onclick="adjCountQty(-1)" style="width:auto;padding:10px 18px;font-size:20px;font-weight:900">−</button>
+            <input type="number" id="count-qty-field" value="1" min="0" inputmode="numeric" class="field-input" style="flex:1;text-align:center;font-size:24px;font-weight:900;padding:10px">
+            <button class="btn btn-ghost btn-sm" onclick="adjCountQty(1)"  style="width:auto;padding:10px 18px;font-size:20px;font-weight:900">+</button>
+          </div>
+          <!-- Manual SKU entry -->
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <input type="text" id="count-sku-field" placeholder="Type internal ref…" autocapitalize="characters" autocomplete="off" class="field-input" style="flex:1;font-family:var(--mono);font-size:14px">
+            <button class="btn btn-ghost btn-sm" onclick="useManualCountSKU()" style="width:auto;padding:10px 14px">USE</button>
+          </div>
+          <button class="btn btn-amber" onclick="saveCountEntry()" style="font-size:17px;padding:15px;margin-bottom:10px">✓ &nbsp;Save Count</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('count-photo-input').click()" style="font-size:15px">📷 &nbsp;Photo Scan</button>
+          <input type="file" id="count-photo-input" accept="image/*" capture="environment" style="display:none" onchange="handleCountProductPhoto(event)">
+          <div id="count-scan-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;min-height:16px;text-align:center"></div>
+        </div>
+      </div>
+
+      <!-- Records -->
+      <div class="card">
+        <div class="card-header">
+          <div class="dot green"></div>COUNTED ITEMS
+          <span id="count-records-badge" style="margin-left:auto;background:var(--amber);color:#000;border-radius:4px;padding:1px 8px;font-size:10px;font-weight:900">0</span>
+        </div>
+        <div id="count-records-table" style="padding:0"></div>
+        <div id="count-records-empty" class="empty-state">// No items counted yet</div>
+      </div>
+
+      <!-- Upload -->
+      <div class="card">
+        <div class="card-header"><div class="dot green"></div>EXPORT TO DRIVE</div>
+        <div class="card-body">
+          <p style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8;margin-bottom:12px">
+            📄 <strong style="color:var(--text)">Sheet 1</strong> — Location, Internal Ref, Qty, Time<br>
+            📋 <strong style="color:var(--text)">Sheet 2</strong> — Odoo inventory adjustment import
+          </p>
+          <button class="btn btn-drive" onclick="uploadCountSession()">☁ &nbsp;Upload to Google Drive</button>
+          <div id="count-upload-progress" class="upload-progress hidden" style="margin-top:10px">
+            <div class="progress-label" id="count-progress-label">Uploading…</div>
+            <div class="progress-bar-wrap"><div class="progress-bar" id="count-progress-bar"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /count-active-state -->
 
   </div><!-- /page-count -->
 
@@ -861,9 +911,8 @@ function sessionsKey() { return 'inv_sessions_' + currentUser.id; }
 function loadOrCreateSession() {
   try {
     const raw = localStorage.getItem(sessionKey());
-    if (raw) { activeSession = JSON.parse(raw); if(!activeSession.customer) showCustomerModal(); }
-    else      { activeSession = null; showCustomerModal(); }
-  } catch(e) { activeSession = null; showCustomerModal(); }
+    activeSession = raw ? JSON.parse(raw) : null;
+  } catch(e) { activeSession = null; }
 }
 
 function startNewSession(customer) {
@@ -885,7 +934,7 @@ function updateSessionHeader() {
 
 function endSession() {
   if (!activeSession)              { toast('No active session','warn'); return; }
-  if (!activeSession.records.length){ toast('Session is empty','warn'); return; }
+  if (!activeSession.records.length){ toast('Session is empty — scan something first','warn'); return; }
   if (!confirm('End this session and save to history?')) return;
   activeSession.end = formatTimestamp(new Date());
   const saved = getSavedSessions();
@@ -893,9 +942,9 @@ function endSession() {
   localStorage.setItem(sessionsKey(), JSON.stringify(saved));
   localStorage.removeItem(sessionKey());
   activeSession = null;
+  stopLive();
   toast('Session saved to history ✓');
-  goPage('dash'); renderDashboard();
-  setTimeout(() => showCustomerModal(), 600);
+  renderScanPage();
 }
 
 function getSavedSessions() {
@@ -944,7 +993,7 @@ function switchMode(mode) {
 
 async function startLive() {
   if (liveActive) return;
-  if (!activeSession) { showCustomerModal(); return; }
+  if (!activeSession) { toast('Start a new session first','warn'); return; }
   // BarcodeDetector used as fallback only — jsQR handles all phones
   setSS('live','ss-reading','⏳ Opening camera…');
   document.getElementById('btn-live-start').disabled = true;
@@ -1138,7 +1187,7 @@ let _pendingEntry = null;
 
 // Auto-save version: checks duplicates (shows modal if dup), but no toast if clean save
 function saveEntryAutoSave() {
-  if (!activeSession) { showCustomerModal(); return; }
+  if (!activeSession) { toast('Start a new session first','warn'); return; }
   const sku   = document.getElementById('sku-field').value.trim().toUpperCase();
   const qty   = parseInt(document.getElementById('qty-field').value,10)||1;
   const price = parseFloat(document.getElementById('price-field').value)||0;
@@ -1161,7 +1210,7 @@ function saveEntryAutoSave() {
 }
 
 function saveEntry(silent=false) {
-  if (!activeSession) { showCustomerModal(); return; }
+  if (!activeSession) { toast('Start a new session first','warn'); return; }
   const sku   = document.getElementById('sku-field').value.trim().toUpperCase();
   const qty   = parseInt(document.getElementById('qty-field').value,10)||1;
   const price = parseFloat(document.getElementById('price-field').value)||0;
@@ -1271,7 +1320,34 @@ function resetForm(){
 // RENDER
 // ═══════════════════════════════════════════════════
 function renderScanPage(flashFirst=false){
-  if(!activeSession) return;
+  // Show idle state if no active session
+  const idleEl = document.getElementById('scan-idle-state');
+  const activeEl = document.getElementById('scan-active-state');
+  if(!activeSession) {
+    if(idleEl)   idleEl.style.display   = '';
+    if(activeEl) activeEl.style.display = 'none';
+    document.getElementById('hdr-session').textContent      = '—';
+    document.getElementById('session-label-hdr').textContent = 'No active session';
+    // Show last 3 sessions in idle card
+    const hist = document.getElementById('scan-idle-history');
+    if (hist) {
+      const saved = getSavedSessions().slice(0, 3);
+      if (!saved.length) { hist.innerHTML = '<div style="padding:14px;color:var(--muted)">No sessions yet</div>'; }
+      else {
+        hist.innerHTML = saved.map(s => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
+            <div>
+              <div style="font-weight:700;font-size:13px;color:var(--text)">👤 ${escHtml(s.customer)}</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${s.start}</div>
+            </div>
+            <div style="font-family:var(--mono);font-size:11px;color:var(--amber)">${(s.records||[]).length} items</div>
+          </div>`).join('');
+      }
+    }
+    return;
+  }
+  if(idleEl)   idleEl.style.display   = 'none';
+  if(activeEl) activeEl.style.display = '';
   updateSessionHeader();
   const rec=activeSession.records;
   const tbody=document.getElementById('records-body');
@@ -1623,98 +1699,133 @@ function loadSettings(){
 // ═══════════════════════════════════════════════════
 // INVENTORY COUNT
 // ═══════════════════════════════════════════════════
-let countSession = { location: null, records: [] };
+let countSession    = null;  // active: { id, location, records, start }
+let countScanBuffer = '';    // currently resolved internal ref (pending save)
 
-function countKey() { return 'inv_count_' + currentUser.id; }
+function countKey()    { return 'inv_count_active_' + currentUser.id; }
+function countHistKey(){ return 'inv_count_hist_'   + currentUser.id; }
 
 function loadCountSession() {
   try {
     const saved = localStorage.getItem(countKey());
-    if (saved) countSession = JSON.parse(saved);
-    else countSession = { location: null, records: [] };
-  } catch(e) { countSession = { location: null, records: [] }; }
+    countSession = saved ? JSON.parse(saved) : null;
+  } catch(e) { countSession = null; }
 }
 
 function saveCountSessionLocal() {
-  try { localStorage.setItem(countKey(), JSON.stringify(countSession)); } catch(e) {}
+  try {
+    if (countSession) localStorage.setItem(countKey(), JSON.stringify(countSession));
+    else localStorage.removeItem(countKey());
+  } catch(e) {}
+}
+
+function getCountHistory() {
+  try { return JSON.parse(localStorage.getItem(countHistKey()) || '[]'); } catch(e) { return []; }
+}
+
+// Resolve scanned barcode → Odoo internal reference.
+// Odoo product QR encodes InternalRef + ProductName concatenated (e.g. "DBT-06STORAGE TROLLY-1PC").
+// We find the BAKED_PRICELIST key that is a prefix of the scanned value.
+function resolveToRef(raw) {
+  const up = raw.trim().toUpperCase();
+  if (up in BAKED_PRICELIST) return up;
+  const refs = Object.keys(BAKED_PRICELIST).sort((a, b) => b.length - a.length);
+  for (const ref of refs) {
+    if (up.startsWith(ref)) return ref;
+  }
+  return up; // unknown — return as-is
 }
 
 function renderCountPage() {
-  if (currentUser) loadCountSession();
-
-  const locSetUI  = document.getElementById('count-loc-set-ui');
-  const locDisp   = document.getElementById('count-loc-display');
-  const scanCard  = document.getElementById('count-scan-card');
-  const recsCard  = document.getElementById('count-records-card');
-  const expCard   = document.getElementById('count-export-card');
-  const dot       = document.getElementById('count-loc-dot');
-
-  if (countSession.location) {
-    locSetUI.style.display = 'none';
-    locDisp.style.display  = 'block';
-    document.getElementById('count-loc-name-display').textContent = countSession.location.name || '—';
-    const barcodeEl = document.getElementById('count-loc-barcode-display');
-    if (countSession.location.barcode && countSession.location.barcode !== countSession.location.name) {
-      barcodeEl.textContent = 'Barcode: ' + countSession.location.barcode;
+  if (!currentUser) return;
+  loadCountSession();
+  const idle   = document.getElementById('count-idle-state');
+  const active = document.getElementById('count-active-state');
+  if (!countSession) {
+    idle.style.display   = '';
+    active.style.display = 'none';
+    const hist   = getCountHistory();
+    const histEl = document.getElementById('count-history-list');
+    if (!hist.length) {
+      histEl.innerHTML = '<div style="padding:14px;color:var(--muted)">No count sessions yet</div>';
     } else {
-      barcodeEl.textContent = '';
+      histEl.innerHTML = hist.slice(0, 10).map(h => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--amber)">\u{1F4CD} ${escHtml(h.location)}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${h.start} \u00b7 ${(h.records||[]).length} items</div>
+          </div>
+          <button onclick="reUploadCountHistory('${h.id}')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px">\u2601</button>
+        </div>`).join('');
     }
-    dot.style.background = 'var(--green)';
-    dot.style.animation  = 'none';
-    scanCard.style.display = '';
   } else {
-    locSetUI.style.display = 'block';
-    locDisp.style.display  = 'none';
-    dot.style.background   = 'var(--muted)';
-    dot.style.animation    = 'none';
-    scanCard.style.display = 'none';
-  }
-
-  const hasRecs = countSession.records && countSession.records.length > 0;
-  recsCard.style.display = hasRecs ? '' : 'none';
-  expCard.style.display  = hasRecs ? '' : 'none';
-
-  if (hasRecs) {
-    document.getElementById('count-records-badge').textContent = countSession.records.length;
-    const rows = countSession.records.map((r, i) => `
-      <div style="display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);gap:10px">
-        <div style="flex:1;min-width:0">
-          <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--amber);word-break:break-all">${escHtml(r.sku)}</div>
-          <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${r.ts||''}</div>
-        </div>
-        <div style="font-size:20px;font-weight:900;color:var(--text);min-width:36px;text-align:right">${r.qty}</div>
-        <button onclick="deleteCountRow(${i})" style="background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;flex-shrink:0">✕</button>
-      </div>`).join('');
-    document.getElementById('count-records-table').innerHTML = rows;
+    idle.style.display   = 'none';
+    active.style.display = '';
+    document.getElementById('count-active-loc-name').textContent = countSession.location;
+    renderCountRecords();
   }
 }
 
-async function decodeImageFileForCount(file) {
-  try {
-    const bitmap = await createImageBitmap(file);
-    // Try BarcodeDetector
-    if (window.BarcodeDetector) {
-      try {
-        const formats = await BarcodeDetector.getSupportedFormats().catch(() => ['qr_code','code_128','ean_13','code_39','data_matrix']);
-        const det = new BarcodeDetector({ formats });
-        const results = await det.detect(bitmap);
-        if (results.length) return results[0].rawValue;
-      } catch(e) {}
-    }
-    // Fallback: jsQR
-    if (typeof jsQR === 'function') {
-      const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width; canvas.height = bitmap.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(bitmap, 0, 0);
-      const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-      const result = jsQR(imgData.data, bitmap.width, bitmap.height, { inversionAttempts: 'dontInvert' });
-      if (result && result.data) return result.data;
-    }
-  } catch(e) { console.error('[Count decode]', e); }
-  return null;
+function renderCountRecords() {
+  const records = countSession ? countSession.records : [];
+  const badge   = document.getElementById('count-records-badge');
+  const table   = document.getElementById('count-records-table');
+  const empty   = document.getElementById('count-records-empty');
+  badge.textContent = records.length;
+  if (!records.length) {
+    table.innerHTML = '';
+    if(empty) empty.style.display = '';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  table.innerHTML = records.map((r, i) => `
+    <div style="display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--amber);word-break:break-all">${escHtml(r.ref)}</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${r.ts||''}</div>
+      </div>
+      <div style="font-size:20px;font-weight:900;color:var(--text);min-width:36px;text-align:right">${r.qty}</div>
+      <button onclick="deleteCountRow(${i})" style="background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;flex-shrink:0">\u2715</button>
+    </div>`).join('');
 }
 
+// ── State transitions ─────────────────────────────
+function startCountSession() {
+  document.getElementById('count-location-entry-card').style.display = '';
+  document.getElementById('count-loc-input').value = '';
+  setTimeout(() => document.getElementById('count-loc-input').focus(), 200);
+}
+
+function cancelCountStart() {
+  document.getElementById('count-location-entry-card').style.display = 'none';
+}
+
+function confirmCountLocation() {
+  const val = document.getElementById('count-loc-input').value.trim();
+  if (!val) { toast('Enter a location name', 'error'); return; }
+  countSession = { id: 'cnt_' + Date.now(), location: val, records: [], start: formatTimestamp(new Date()) };
+  saveCountSessionLocal();
+  clearCountScanState();
+  renderCountPage();
+}
+
+function endCountSession() {
+  if (!countSession) return;
+  const hasRecs = countSession.records && countSession.records.length;
+  const msg = hasRecs
+    ? `End counting for ${countSession.location}?\n${countSession.records.length} items will be saved to history.`
+    : `No items counted. End session for ${countSession.location} anyway?`;
+  if (!confirm(msg)) return;
+  const hist = getCountHistory();
+  hist.unshift({ ...countSession, end: formatTimestamp(new Date()) });
+  localStorage.setItem(countHistKey(), JSON.stringify(hist.slice(0, 50)));
+  countSession = null;
+  saveCountSessionLocal();
+  renderCountPage();
+  toast('Location session ended ✓');
+}
+
+// ── Location QR scan ──────────────────────────────
 async function handleCountLocationPhoto(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
@@ -1722,49 +1833,59 @@ async function handleCountLocationPhoto(e) {
   const raw = await decodeImageFileForCount(file);
   if (raw) {
     document.getElementById('count-loc-input').value = raw;
-    toast('Location scanned — confirm or edit below');
+    toast('Location scanned — confirm or edit');
   } else {
     toast('No QR found — type location name', 'warn');
   }
 }
 
-function setCountLocation() {
-  const val = document.getElementById('count-loc-input').value.trim();
-  if (!val) { toast('Enter a location name', 'error'); return; }
-  // Store name; if it looks like it contains a barcode segment separate from name, split — but
-  // Odoo location QR typically encodes the barcode field. We store both as the same value and
-  // the user has confirmed the display name by typing/editing it.
-  countSession.location = { name: val, barcode: val };
-  saveCountSessionLocal();
-  renderCountPage();
-}
-
-function changeCountLocation() {
-  countSession.location = null;
-  saveCountSessionLocal();
-  renderCountPage();
-  setTimeout(() => document.getElementById('count-loc-input').focus(), 100);
+// ── Product scanning ──────────────────────────────
+function clearCountScanState() {
+  countScanBuffer = '';
+  const refEl = document.getElementById('count-ref-display');
+  if (refEl) { refEl.textContent = '— scan an item —'; refEl.style.color = 'var(--amber)'; }
+  const qtyEl = document.getElementById('count-qty-field');
+  if (qtyEl) qtyEl.value = 1;
+  const skuEl = document.getElementById('count-sku-field');
+  if (skuEl) skuEl.value = '';
+  const stEl = document.getElementById('count-scan-status');
+  if (stEl) stEl.textContent = '';
 }
 
 async function handleCountProductPhoto(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  const status = document.getElementById('count-scan-status');
-  status.textContent = '⏳ Decoding…';
-  status.style.color = 'var(--muted)';
+  const statusEl = document.getElementById('count-scan-status');
+  statusEl.textContent = '\u23f3 Decoding…'; statusEl.style.color = 'var(--muted)';
   const raw = await decodeImageFileForCount(file);
   if (raw) {
-    // Extract SKU — same logic as main scanner
-    const sku = raw.trim().toUpperCase();
-    document.getElementById('count-sku-field').value = sku;
-    status.textContent = '✓ Scanned: ' + raw.substring(0, 60);
-    status.style.color = 'var(--green)';
+    const ref = resolveToRef(raw);
+    countScanBuffer = ref;
+    const refEl = document.getElementById('count-ref-display');
+    refEl.textContent = ref; refEl.style.color = 'var(--green)';
+    statusEl.textContent = (raw !== ref) ? ('Raw: ' + raw.substring(0, 55)) : '';
+    statusEl.style.color = 'var(--green)';
     playBeep('scan');
+    if (navigator.vibrate) navigator.vibrate(120);
+    toast('\u2713 ' + ref);
   } else {
-    status.textContent = '✗ No barcode found — enter SKU manually';
-    status.style.color = 'var(--red)';
+    const refEl = document.getElementById('count-ref-display');
+    refEl.style.color = 'var(--red)';
+    statusEl.textContent = '\u2717 No barcode found — type ref manually';
+    statusEl.style.color = 'var(--red)';
   }
+}
+
+function useManualCountSKU() {
+  const v = (document.getElementById('count-sku-field').value || '').trim().toUpperCase();
+  if (!v) { toast('Enter an internal reference', 'error'); return; }
+  countScanBuffer = v;
+  document.getElementById('count-ref-display').textContent = v;
+  document.getElementById('count-ref-display').style.color = 'var(--amber)';
+  document.getElementById('count-sku-field').value = '';
+  document.getElementById('count-scan-status').textContent = '';
+  toast('\u2713 ' + v);
 }
 
 function adjCountQty(delta) {
@@ -1772,70 +1893,72 @@ function adjCountQty(delta) {
   el.value = Math.max(0, (parseInt(el.value) || 0) + delta);
 }
 
-function clearCountFields() {
-  document.getElementById('count-sku-field').value = '';
-  document.getElementById('count-qty-field').value = '1';
-  document.getElementById('count-scan-status').textContent = '';
-}
-
 function saveCountEntry() {
-  const sku = (document.getElementById('count-sku-field').value || '').trim().toUpperCase();
+  if (!countSession) return;
+  const ref = countScanBuffer || (document.getElementById('count-sku-field').value || '').trim().toUpperCase();
   const qty = parseInt(document.getElementById('count-qty-field').value) || 0;
-  if (!sku) { toast('Scan or enter a SKU first', 'error'); return; }
-
+  if (!ref) { toast('Scan or enter an item first', 'error'); return; }
   countSession.records = countSession.records || [];
-  // Check duplicate — always merge in count mode (inventory count = each SKU once per location)
-  const existing = countSession.records.find(r => r.sku === sku);
+  const existing = countSession.records.find(r => r.ref === ref);
   if (existing) {
-    if (!confirm(`${sku} already counted (qty: ${existing.qty}). Replace qty with ${qty}?`)) return;
-    existing.qty = qty;
-    existing.ts  = formatTimestamp(new Date());
+    if (!confirm(`${ref} already counted (qty: ${existing.qty}).\nReplace with ${qty}?`)) return;
+    existing.qty = qty; existing.ts = formatTimestamp(new Date());
   } else {
-    countSession.records.push({ sku, qty, ts: formatTimestamp(new Date()) });
+    countSession.records.unshift({ ref, qty, ts: formatTimestamp(new Date()) });
   }
-
   saveCountSessionLocal();
-  clearCountFields();
-  renderCountPage();
+  clearCountScanState();
+  renderCountRecords();
   playBeep('save');
-  toast(`✓ Counted: ${sku}  ×${qty}`);
+  toast(`\u2713 ${ref}  \u00d7${qty}`);
 }
 
 function deleteCountRow(i) {
   if (!confirm('Remove this count entry?')) return;
   countSession.records.splice(i, 1);
   saveCountSessionLocal();
-  renderCountPage();
-  toast('Row removed', 'warn');
+  renderCountRecords();
+  toast('Removed', 'warn');
 }
 
-function clearCountSession() {
-  if (!confirm('Clear all count records and location?')) return;
-  countSession = { location: null, records: [] };
-  saveCountSessionLocal();
-  renderCountPage();
-  toast('Count session cleared', 'warn');
+// ── Image decode helper ───────────────────────────
+async function decodeImageFileForCount(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    if (window.BarcodeDetector) {
+      try {
+        const formats = await BarcodeDetector.getSupportedFormats().catch(() =>
+          ['qr_code','code_128','ean_13','code_39','data_matrix','aztec','pdf417']);
+        const results = await (new BarcodeDetector({ formats })).detect(bitmap);
+        if (results.length) return results[0].rawValue;
+      } catch(e) {}
+    }
+    if (typeof jsQR === 'function') {
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      const result  = jsQR(imgData.data, bitmap.width, bitmap.height, { inversionAttempts: 'dontInvert' });
+      if (result && result.data) return result.data;
+    }
+  } catch(e) { console.error('[Count decode]', e); }
+  return null;
 }
 
-function buildCountWorkbook(records, location, dateStr) {
+// ── Export / Upload ───────────────────────────────
+function buildCountWorkbook(records, location) {
   const wb = XLSX.utils.book_new();
-
-  // ── Sheet 1: Full Count Report ──
-  const s1 = [['Location', 'SKU / Internal Reference', 'Counted Qty', 'Time']];
-  records.forEach(r => s1.push([location, r.sku, r.qty, r.ts || '']));
+  const s1 = [['Location', 'Internal Reference', 'Counted Qty', 'Time']];
+  records.forEach(r => s1.push([location, r.ref, r.qty, r.ts || '']));
   const ws1 = XLSX.utils.aoa_to_sheet(s1);
-  ws1['!cols'] = [{wch:28},{wch:30},{wch:14},{wch:22}];
+  ws1['!cols'] = [{wch:30},{wch:28},{wch:14},{wch:22}];
   XLSX.utils.book_append_sheet(wb, ws1, 'Count Report');
-
-  // ── Sheet 2: Odoo Inventory Adjustment Import ──
-  // Model: stock.quant
-  // Fields: product_id/default_code | location_id/complete_name | inventory_quantity
   const s2 = [['product_id/default_code', 'location_id/complete_name', 'inventory_quantity']];
-  records.forEach(r => s2.push([r.sku, location, r.qty]));
+  records.forEach(r => s2.push([r.ref, location, r.qty]));
   const ws2 = XLSX.utils.aoa_to_sheet(s2);
-  ws2['!cols'] = [{wch:30},{wch:30},{wch:20}];
+  ws2['!cols'] = [{wch:28},{wch:30},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Odoo Inventory Import');
-
   return wb;
 }
 
@@ -1847,55 +1970,60 @@ function setCountProgress(pct, label) {
 }
 function hideCountProgress() { document.getElementById('count-upload-progress').classList.add('hidden'); }
 
+async function doCountUpload(records, location) {
+  const token    = await ensureAccessToken();
+  const folderId = await getUploadFolderId(token);
+  const wb       = buildCountWorkbook(records, location);
+  const wbArray  = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob     = new Blob([wbArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const safeLoc  = location.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+  const filename = `Count_${safeLoc}_${formatDate(new Date())}.xlsx`;
+  const boundary = '-------fraimage_count_bnd';
+  const meta     = JSON.stringify({ name: filename, parents: [folderId] });
+  const metaBlob = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`], { type: 'text/plain' });
+  const endBlob  = new Blob([`\r\n--${boundary}--`], { type: 'text/plain' });
+  const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/related; boundary=' + boundary },
+    body: new Blob([metaBlob, blob, endBlob])
+  });
+  const result = await up.json();
+  if (result.error) throw new Error(result.error.message);
+  return filename;
+}
+
 async function uploadCountSession() {
-  const records = countSession.records || [];
-  if (!records.length) { toast('No count records to upload', 'warn'); return; }
-  if (!countSession.location) { toast('Set a location first', 'error'); return; }
-
-  const locName = countSession.location.name;
-  const btn = document.querySelector('#count-export-card .btn-drive');
+  if (!countSession || !countSession.records.length) { toast('No count records to upload', 'warn'); return; }
+  const btn = document.querySelector('#count-active-state .btn-drive');
   if (btn) btn.disabled = true;
-
   try {
     setCountProgress(10, 'Authenticating…');
-    const token = await ensureAccessToken();
-    setCountProgress(30, 'Creating folder structure…');
-    const folderId = await getUploadFolderId(token);
-    setCountProgress(55, 'Building Excel file…');
-
-    const dateStr = formatDate(new Date());
-    const wb      = buildCountWorkbook(records, locName, dateStr);
-    const wbArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const blob    = new Blob([wbArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
-    const safeLoc = locName.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
-    const filename = `Count_${safeLoc}_${dateStr}.xlsx`;
-
-    const boundary = '-------fraimage_count_boundary';
-    const meta     = JSON.stringify({ name: filename, parents: [folderId] });
-    const metaBlob = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`], { type: 'text/plain' });
-    const endBlob  = new Blob([`\r\n--${boundary}--`], { type: 'text/plain' });
-    const body     = new Blob([metaBlob, blob, endBlob]);
-
-    setCountProgress(75, 'Uploading to Drive…');
-    const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/related; boundary=' + boundary },
-      body
-    });
-    const result = await up.json();
-    if (result.error) throw new Error(result.error.message);
-    setCountProgress(100, '✓ Uploaded: ' + filename);
+    setCountProgress(40, 'Building Excel…');
+    setCountProgress(70, 'Uploading…');
+    const filename = await doCountUpload(countSession.records, countSession.location);
+    setCountProgress(100, '\u2713 Uploaded: ' + filename);
     setTimeout(hideCountProgress, 3000);
-    toast('☁ Count uploaded to Google Drive ✓');
+    toast('\u2601 Count uploaded to Drive \u2713');
     playBeep('save');
   } catch(err) {
     hideCountProgress();
     toast('Upload failed: ' + (err.message || err), 'error');
-    console.error(err);
   }
   if (btn) btn.disabled = false;
 }
+
+async function reUploadCountHistory(id) {
+  const h = getCountHistory().find(x => x.id === id);
+  if (!h || !h.records || !h.records.length) { toast('No records in that session', 'warn'); return; }
+  toast('Uploading…');
+  try {
+    const filename = await doCountUpload(h.records, h.location);
+    toast('\u2601 Re-uploaded: ' + filename + ' \u2713');
+  } catch(err) {
+    toast('Upload failed: ' + (err.message || err), 'error');
+  }
+}
+
 
 // ═══════════════════════════════════════════════════
 // SOUND
