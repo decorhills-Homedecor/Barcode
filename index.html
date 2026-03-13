@@ -736,7 +736,8 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
 // CONFIG — your Google OAuth Client ID
 // ═══════════════════════════════════════════════════
 const GOOGLE_CLIENT_ID = '456195571791-9uin6bnh61j8jqkcbkffph6fit7dp6kl.apps.googleusercontent.com';
-const SHARED_PARENT_ID  = '1y3YPOIEELOsejPBMLlIKvx-r0HmTf93P'; // Your shared Fraimage Scans folder
+const SHARED_PARENT_ID  = '1y3YPOIEELOsejPBMLlIKvx-r0HmTf93P'; // Fraimage Scans (sales)
+const COUNT_FOLDER_ID   = '1tUyeImMExjQIyS1bhW0NdCgNOPtAlle3'; // Warehouse Inventory Counts folder
 
 // ═══════════════════════════════════════════════════
 // STATE
@@ -1972,7 +1973,11 @@ function hideCountProgress() { document.getElementById('count-upload-progress').
 
 async function doCountUpload(records, location) {
   const token    = await ensureAccessToken();
-  const folderId = await getUploadFolderId(token);
+  // Upload directly into the warehouse counts shared folder
+  const staffName = currentUser ? currentUser.name : 'Unknown';
+  const staffId   = await getOrCreateFolder(token, staffName, COUNT_FOLDER_ID);
+  const dateStr   = formatDate(new Date());
+  const folderId  = await getOrCreateFolder(token, dateStr, staffId);
   const wb       = buildCountWorkbook(records, location);
   const wbArray  = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob     = new Blob([wbArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
