@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f5a623">
 <title>Fraimage Inventory Scanner</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-title" content="Fraimage">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d0f0f'/><rect x='6' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='41' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='6' y='36' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='41' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='36' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/></svg>">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -815,6 +818,27 @@ const USER_CACHE_KEY = 'inv_cached_user';
 // ═══════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════
+// ── Register Service Worker (PWA offline support) ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/Barcode/sw.js')
+      .then(reg => {
+        console.log('[PWA] Service worker registered:', reg.scope);
+        // Check for updates every time app opens
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // New version available — notify user
+              toast('App update available — reload to apply', 'warn');
+            }
+          });
+        });
+      })
+      .catch(err => console.warn('[PWA] SW registration failed:', err));
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => document.getElementById('splash').classList.add('hide'), 1750);
   const qrCap = document.getElementById('qr-capture');
