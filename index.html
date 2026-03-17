@@ -1111,30 +1111,28 @@ async function startLive() {
   setSS('live','ss-live','● SCANNING — hold QR in frame');
   const canvas = document.getElementById('scan-canvas');
   const ctx    = canvas.getContext('2d');
-  const useJsQR = (typeof jsQR === 'function');
-  console.log('[Scanner] jsQR available:', useJsQR, '| BarcodeDetector:', !!detector);
   liveTimer = setInterval(async () => {
     if (!liveActive || video.readyState < 2) return;
     const w = video.videoWidth, h = video.videoHeight;
     if (!w || !h) return;
     canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-    // Primary: jsQR — works on ALL phones reliably
-    if (useJsQR) {
+    // Primary: jsQR — check every frame in case CDN loaded late
+    if (typeof jsQR === 'function') {
       try {
         const imgData = ctx.getImageData(0, 0, w, h);
-        const result  = jsQR(imgData.data, w, h, {inversionAttempts:'dontInvert'});
+        const result  = jsQR(imgData.data, w, h, {inversionAttempts:'attemptBoth'});
         if (result && result.data) { onScanSuccess(result.data, 'live'); return; }
       } catch(e) {}
     }
-    // Fallback: BarcodeDetector (for phones without jsQR CDN)
+    // Fallback: BarcodeDetector
     if (detector) {
       try {
         const codes = await detector.detect(canvas);
         if (codes.length > 0) onScanSuccess(codes[0].rawValue, 'live');
       } catch(e) {}
     }
-  }, 250);
+  }, 200);
 }
 
 function stopLive() {
@@ -1950,17 +1948,17 @@ async function _openCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, onD
   if (statusEl) { statusEl.className='scan-status ss-live'; statusEl.textContent='● SCANNING — hold label in frame'; }
   const canvas = document.getElementById('scan-canvas');
   const ctx    = canvas.getContext('2d');
-  const useJsQR = (typeof jsQR === 'function');
   const timer = setInterval(async () => {
     if (video.readyState < 2) return;
     const w = video.videoWidth, h = video.videoHeight;
     if (!w || !h) return;
     canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-    if (useJsQR) {
+    // Check jsQR every frame — handles late CDN load
+    if (typeof jsQR === 'function') {
       try {
         const imgData = ctx.getImageData(0, 0, w, h);
-        const result  = jsQR(imgData.data, w, h, {inversionAttempts:'dontInvert'});
+        const result  = jsQR(imgData.data, w, h, {inversionAttempts:'attemptBoth'});
         if (result && result.data) { onDetected(result.data); return; }
       } catch(e) {}
     }
@@ -1970,7 +1968,7 @@ async function _openCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, onD
         if (codes.length > 0) { onDetected(codes[0].rawValue); return; }
       } catch(e) {}
     }
-  }, 250);
+  }, 200);
   return { stream, timer };
 }
 

@@ -1,6 +1,6 @@
 // Fraimage Inventory Scanner — Service Worker
 // Version: bump this string to force cache refresh on update
-const CACHE_VERSION = 'fraimage-v1';
+const CACHE_VERSION = 'fraimage-v2';
 const CACHE_NAME    = CACHE_VERSION;
 
 // Files to cache for offline use
