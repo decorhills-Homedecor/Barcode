@@ -388,6 +388,7 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
             <div class="scan-overlay"><div class="bl"></div><div class="br"></div><div class="scan-beam"></div></div>
           </div>
           <div id="live-status" class="scan-status ss-ready">● Tap START to begin live scanning</div>
+          <div id="scan-engine-info" style="font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;margin-bottom:4px;display:none"></div>
           <div class="btn-row mt-10">
             <button class="btn btn-amber" id="btn-live-start" onclick="startLive()">▶ &nbsp;Start</button>
             <button class="btn btn-ghost hidden" id="btn-live-stop" onclick="stopLive()">■ &nbsp;Stop</button>
@@ -1074,17 +1075,27 @@ async function startLive() {
   if (!activeSession) { toast('Start a new session first','warn'); return; }
   setSS('live','ss-reading','⏳ Opening camera…');
   document.getElementById('btn-live-start').disabled = true;
-  // BarcodeDetector is optional — jsQR is primary on all phones
+  // Try BarcodeDetector (native Android Chrome)
   let detector = null;
   try {
     if (typeof BarcodeDetector !== 'undefined') {
-      detector = new BarcodeDetector({formats:[
-        'qr_code','code_128','code_39','code_93',
-        'ean_13','ean_8','upc_a','upc_e',
-        'data_matrix','aztec','pdf417','itf','codabar'
-      ]});
+      const supported = await BarcodeDetector.getSupportedFormats().catch(() => ['qr_code','code_128','ean_13','code_39','data_matrix']);
+      detector = new BarcodeDetector({formats: supported});
     }
   } catch(e) { detector = null; }
+  // Show debug info
+  const engineInfo = document.getElementById('scan-engine-info');
+  const hasJsQR = typeof jsQR === 'function';
+  if (engineInfo) {
+    engineInfo.style.display = '';
+    engineInfo.textContent = 'Engine: ' + (detector ? '✓ Native' : '✗ No native') + ' | jsQR: ' + (hasJsQR ? '✓ Loaded' : '✗ Not loaded');
+    engineInfo.style.color = (detector || hasJsQR) ? 'var(--green)' : 'var(--red)';
+  }
+  if (!detector && !hasJsQR) {
+    setSS('live','ss-error','✗ No scan engine available — try refreshing');
+    document.getElementById('btn-live-start').disabled = false;
+    return;
+  }
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
@@ -1117,19 +1128,19 @@ async function startLive() {
     if (!w || !h) return;
     canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-    // Primary: jsQR — check every frame in case CDN loaded late
+    // Primary: BarcodeDetector — native Android Chrome, no library needed
+    if (detector) {
+      try {
+        const codes = await detector.detect(canvas);
+        if (codes.length > 0) { onScanSuccess(codes[0].rawValue, 'live'); return; }
+      } catch(e) {}
+    }
+    // Secondary: jsQR — universal fallback
     if (typeof jsQR === 'function') {
       try {
         const imgData = ctx.getImageData(0, 0, w, h);
         const result  = jsQR(imgData.data, w, h, {inversionAttempts:'attemptBoth'});
         if (result && result.data) { onScanSuccess(result.data, 'live'); return; }
-      } catch(e) {}
-    }
-    // Fallback: BarcodeDetector
-    if (detector) {
-      try {
-        const codes = await detector.detect(canvas);
-        if (codes.length > 0) onScanSuccess(codes[0].rawValue, 'live');
       } catch(e) {}
     }
   }, 200);
@@ -1924,7 +1935,8 @@ async function _openCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, onD
   let detector = null;
   try {
     if (typeof BarcodeDetector !== 'undefined') {
-      detector = new BarcodeDetector({formats:['qr_code','code_128','code_39','ean_13','ean_8','upc_a','data_matrix']});
+      const supported = await BarcodeDetector.getSupportedFormats().catch(() => ['qr_code','code_128','ean_13','code_39','data_matrix']);
+      detector = new BarcodeDetector({formats: supported});
     }
   } catch(e) { detector = null; }
   let stream;
@@ -1954,18 +1966,19 @@ async function _openCamera(videoId, wrapId, statusId, startBtnId, stopBtnId, onD
     if (!w || !h) return;
     canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-    // Check jsQR every frame — handles late CDN load
+    // Primary: BarcodeDetector native
+    if (detector) {
+      try {
+        const codes = await detector.detect(canvas);
+        if (codes.length > 0) { onDetected(codes[0].rawValue); return; }
+      } catch(e) {}
+    }
+    // Secondary: jsQR fallback
     if (typeof jsQR === 'function') {
       try {
         const imgData = ctx.getImageData(0, 0, w, h);
         const result  = jsQR(imgData.data, w, h, {inversionAttempts:'attemptBoth'});
         if (result && result.data) { onDetected(result.data); return; }
-      } catch(e) {}
-    }
-    if (detector) {
-      try {
-        const codes = await detector.detect(canvas);
-        if (codes.length > 0) { onDetected(codes[0].rawValue); return; }
       } catch(e) {}
     }
   }, 200);
