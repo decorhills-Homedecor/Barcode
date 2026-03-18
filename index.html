@@ -13,7 +13,29 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d0f0f'/><rect x='6' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='6' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='41' y='11' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='6' y='36' width='22' height='22' rx='3' fill='none' stroke='%23f5a623' stroke-width='3'/><rect x='11' y='41' width='12' height='12' rx='1.5' fill='%23f5a623'/><rect x='36' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='36' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='36' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/><rect x='50' y='50' width='10' height='10' rx='1.5' fill='%23f5a623'/></svg>">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<!-- jsQR loaded from multiple CDNs with fallback -->
+<script>
+(function(){
+  var cdns = [
+    'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js',
+    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
+    'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js'
+  ];
+  var idx = 0;
+  function tryNext() {
+    if (idx >= cdns.length) {
+      console.warn('[jsQR] All CDNs failed — BarcodeDetector only mode');
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = cdns[idx++];
+    s.onload = function(){ console.log('[jsQR] Loaded from', s.src); };
+    s.onerror = function(){ console.warn('[jsQR] Failed:', s.src, '— trying next'); tryNext(); };
+    document.head.appendChild(s);
+  }
+  tryNext();
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;600;700;900&display=swap');
 :root{--bg:#0d0f0f;--surface:#161a1a;--panel:#1e2424;--border:#2e3838;--amber:#f5a623;--amber-dim:#a86f0f;--green:#22c55e;--red:#ef4444;--blue:#38bdf8;--purple:#a78bfa;--text:#e8eaea;--muted:#6b7a7a;--mono:'Share Tech Mono',monospace;--sans:'Barlow',sans-serif;--r:10px}
