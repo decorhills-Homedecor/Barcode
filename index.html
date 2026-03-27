@@ -947,12 +947,32 @@ async function signInWithOdoo() {
 
   try {
     const authBase = ODOO_PROXY || ODOO_URL;
-    const resp = await fetch(authBase + '/fraimage/scanner/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ db: ODOO_DB, login: email, password: password })
-    });
-    const data = await resp.json();
+    let resp, data;
+    try {
+      resp = await fetch(authBase + '/fraimage/scanner/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ db: ODOO_DB, login: email, password: password })
+      });
+    } catch(fetchErr) {
+      errEl.textContent  = 'Network error — cannot reach proxy: ' + fetchErr.message;
+      errEl.style.display = '';
+      btnEl.disabled = false;
+      btnEl.textContent = '🔐 Sign In';
+      loadEl.classList.remove('show');
+      return;
+    }
+    try {
+      data = await resp.json();
+    } catch(jsonErr) {
+      const raw = await resp.text().catch(()=>'');
+      errEl.textContent  = 'Bad response (HTTP ' + resp.status + '): ' + raw.substring(0,120);
+      errEl.style.display = '';
+      btnEl.disabled = false;
+      btnEl.textContent = '🔐 Sign In';
+      loadEl.classList.remove('show');
+      return;
+    }
 
     if (!data.success) {
       errEl.textContent  = data.error || 'Login failed. Check your credentials.';
@@ -976,11 +996,12 @@ async function signInWithOdoo() {
     onLoginSuccess();
 
   } catch(e) {
-    errEl.textContent  = 'Cannot reach Odoo server. Check your connection.';
+    errEl.textContent  = 'Error: ' + (e.message || 'Cannot reach Odoo server.');
     errEl.style.display = '';
     btnEl.disabled = false;
     btnEl.textContent = '🔐 Sign In';
     loadEl.classList.remove('show');
+    console.error('Login error:', e);
   }
 }
 
