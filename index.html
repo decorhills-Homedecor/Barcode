@@ -853,6 +853,9 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
 // ── Odoo Configuration ──
 const ODOO_URL = 'https://fraimage-novelties-trading-llc1.odoo.com';
 const ODOO_DB  = 'fraimage-novelties-trading-llc1';
+// ↓ Cloudflare Worker proxy URL — paste your worker URL here after deployment
+// Leave empty to try direct connection (only works if CORS is enabled on Odoo server)
+const ODOO_PROXY = 'https://odoo-proxy.decorhills267.workers.dev';
 // Google Drive folders (kept for sales export reference — not used for auth)
 const SHARED_PARENT_ID  = '1y3YPOIEELOsejPBMLlIKvx-r0HmTf93P';
 const COUNT_FOLDER_ID   = '1MBton6AxWco2WsXCvMOkx7l6OnHW7GrN';
@@ -943,7 +946,8 @@ async function signInWithOdoo() {
   loadEl.classList.add('show');
 
   try {
-    const resp = await fetch(ODOO_URL + '/fraimage/scanner/auth', {
+    const authBase = ODOO_PROXY || ODOO_URL;
+    const resp = await fetch(authBase + '/fraimage/scanner/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ db: ODOO_DB, login: email, password: password })
@@ -991,7 +995,8 @@ async function odooApiCall(endpoint, method='GET', body=null) {
     }
   };
   if (body && method !== 'GET') opts.body = JSON.stringify(body);
-  const resp = await fetch(ODOO_URL + endpoint, opts);
+  const apiBase = ODOO_PROXY || ODOO_URL;
+  const resp = await fetch(apiBase + endpoint, opts);
   return await resp.json();
 }
 
