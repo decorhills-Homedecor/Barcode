@@ -2137,6 +2137,50 @@ function stopCountLive() {
 let lastCountRaw = '';
 let lastCountRawTime = 0;
 
+// ── Check past sessions for a ref ─────────────────
+function checkPastSessionsForRef(ref) {
+  // Returns array of {location, date, qty} from all past sessions
+  const hist = getCountHistory();
+  const matches = [];
+  hist.forEach(session => {
+    if (!session.records) return;
+    const record = session.records.find(r => r.ref === ref);
+    if (record) {
+      matches.push({
+        location: session.location || '—',
+        date: session.start ? session.start.substring(0, 10) : '—',
+        qty: record.qty
+      });
+    }
+  });
+  return matches;
+}
+
+function showDuplicateWarning(ref, matches, onProceed, onSkip) {
+  const panel = document.getElementById('count-dup-warning');
+  const body  = document.getElementById('count-dup-body');
+  if (!panel || !body) { onProceed(); return; }
+  // Build matches table
+  let html = `<div style="font-family:var(--mono);font-size:12px;font-weight:900;color:#ef4444;margin-bottom:10px;letter-spacing:1px">⚠ PREVIOUSLY COUNTED</div>`;
+  html += `<div style="font-family:var(--mono);font-size:15px;font-weight:900;color:var(--text);margin-bottom:12px">${escHtml(ref)}</div>`;
+  html += `<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:8px">Found in ${matches.length} past session${matches.length>1?'s':''}:</div>`;
+  html += '<div style="border:1px solid #3a1010;border-radius:8px;overflow:hidden;margin-bottom:14px">';
+  matches.forEach((m,i) => {
+    html += `<div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:8px 12px;background:${i%2===0?'#1a0c0c':'#150808'};align-items:center">
+      <div style="font-family:var(--mono);font-size:11px;color:#f87171">📍 ${escHtml(m.location)}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${m.date}</div>
+      <div style="font-family:var(--mono);font-size:13px;font-weight:900;color:#f87171">×${m.qty}</div>
+    </div>`;
+  });
+  html += '</div>';
+  html += '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:14px">This item may have been moved.<br>Count it here anyway?</div>';
+  body.innerHTML = html;
+  panel.style.display = 'flex';
+  // Wire buttons
+  document.getElementById('count-dup-yes').onclick = () => { panel.style.display='none'; onProceed(); };
+  document.getElementById('count-dup-skip').onclick = () => { panel.style.display='none'; onSkip(); };
+}
+
 function onCountScanDetected(raw) {
   // Cooldown — ignore same barcode within 2 seconds
   const now = Date.now();
@@ -2150,26 +2194,49 @@ function onCountScanDetected(raw) {
   if (!ref) {
     const statusEl = document.getElementById('count-live-status');
     if (statusEl) { statusEl.style.display=''; statusEl.className='scan-status ss-error'; statusEl.textContent='✗ Not found: '+raw.substring(0,40)+' — type ref manually or scan again'; }
-    // Resume after 2 seconds so staff can try again
     setTimeout(() => { if (countLiveStream) resumeCountScan(); }, 2000);
     playBeep('scan'); return;
   }
-  // Fill ref display and show ref+qty section
+  // Check past sessions for duplicate
+  const pastMatches = checkPastSessionsForRef(ref);
+  const isDuplicate = pastMatches.length > 0;
+  // Fill ref display
   document.getElementById('count-ref-display').textContent = ref;
+  document.getElementById('count-ref-display').style.borderColor = isDuplicate ? '#ef4444' : 'var(--green)';
+  document.getElementById('count-ref-display').style.color = isDuplicate ? '#ef4444' : 'var(--green)';
   document.getElementById('count-sku-field').value = '';
   document.getElementById('count-qty-field').value = 1;
-  document.getElementById('count-ref-section').style.display = '';
-  // Show Odoo stock comparison
-  const sessionLoc = countSession ? countSession.location : '';
-  showStockComparison(ref, sessionLoc);
-  // Flash
+  // Flash ref display
   const el = document.getElementById('count-ref-display');
-  el.style.background = '#0c2a18';
-  setTimeout(() => { el.style.background = 'var(--panel)'; }, 700);
-  playBeep('scan');
-  if (navigator.vibrate) navigator.vibrate(120);
-  // Focus qty for quick adjustment
-  setTimeout(() => document.getElementById('count-qty-field').focus(), 150);
+  el.style.background = isDuplicate ? '#2a0c0c' : '#0c2a18';
+  setTimeout(() => { el.style.background = 'var(--panel)'; }, 800);
+  if (isDuplicate) {
+    // Red flash + double beep + warning panel
+    playBeep('duplicate');
+    if (navigator.vibrate) navigator.vibrate([100, 80, 100]);
+    showDuplicateWarning(ref, pastMatches,
+      () => {
+        // Proceed — show qty section normally
+        document.getElementById('count-ref-section').style.display = '';
+        const sessionLoc = countSession ? countSession.location : '';
+        showStockComparison(ref, sessionLoc);
+        setTimeout(() => document.getElementById('count-qty-field').focus(), 150);
+      },
+      () => {
+        // Skip — clear and resume camera
+        clearCountScanState();
+        if (countLiveStream) resumeCountScan();
+      }
+    );
+  } else {
+    // New item — green flash + normal beep
+    playBeep('new');
+    if (navigator.vibrate) navigator.vibrate(120);
+    document.getElementById('count-ref-section').style.display = '';
+    const sessionLoc = countSession ? countSession.location : '';
+    showStockComparison(ref, sessionLoc);
+    setTimeout(() => document.getElementById('count-qty-field').focus(), 150);
+  }
 }
 
 // ── Location QR scan ──────────────────────────────
@@ -2544,10 +2611,38 @@ function getACtx(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitA
 function playBeep(type='scan'){
   if(settings.sound===false)return;
   try{
-    const ctx=getACtx(),osc=ctx.createOscillator(),gain=ctx.createGain();
-    osc.connect(gain);gain.connect(ctx.destination);
-    if(type==='scan'){osc.frequency.setValueAtTime(880,ctx.currentTime);osc.frequency.exponentialRampToValueAtTime(1320,ctx.currentTime+.08);gain.gain.setValueAtTime(.35,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.15);osc.start(ctx.currentTime);osc.stop(ctx.currentTime+.15);}
-    else{osc.frequency.setValueAtTime(660,ctx.currentTime);osc.frequency.setValueAtTime(990,ctx.currentTime+.07);gain.gain.setValueAtTime(.3,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.18);osc.start(ctx.currentTime);osc.stop(ctx.currentTime+.18);}
+    const ctx=getACtx();
+    if(type==='scan'||type==='new'){
+      // New item — high rising beep (green)
+      const osc=ctx.createOscillator(),gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(880,ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1320,ctx.currentTime+.08);
+      gain.gain.setValueAtTime(.35,ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.15);
+      osc.start(ctx.currentTime);osc.stop(ctx.currentTime+.15);
+    } else if(type==='duplicate'){
+      // Duplicate — double low warning beep (red)
+      [0, 0.22].forEach(delay => {
+        const osc=ctx.createOscillator(),gain=ctx.createGain();
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.type='square';
+        osc.frequency.setValueAtTime(320,ctx.currentTime+delay);
+        osc.frequency.exponentialRampToValueAtTime(200,ctx.currentTime+delay+.12);
+        gain.gain.setValueAtTime(.3,ctx.currentTime+delay);
+        gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+delay+.18);
+        osc.start(ctx.currentTime+delay);osc.stop(ctx.currentTime+delay+.18);
+      });
+    } else {
+      // Save beep
+      const osc=ctx.createOscillator(),gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(660,ctx.currentTime);
+      osc.frequency.setValueAtTime(990,ctx.currentTime+.07);
+      gain.gain.setValueAtTime(.3,ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.18);
+      osc.start(ctx.currentTime);osc.stop(ctx.currentTime+.18);
+    }
   }catch(e){}
 }
 
@@ -2570,6 +2665,17 @@ const styleEl=document.createElement('style');
 styleEl.textContent='@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}';
 document.head.appendChild(styleEl);
 </script>
+<!-- ⚠️ Count duplicate past-session warning modal -->
+<div id="count-dup-warning" style="position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:9100;display:none;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#1a0c0c;border:2px solid #ef4444;border-radius:16px;padding:24px 20px;width:100%;max-width:360px;box-shadow:0 0 60px rgba(239,68,68,.3)">
+    <div id="count-dup-body"></div>
+    <div style="display:flex;gap:10px">
+      <button id="count-dup-skip" style="flex:1;padding:14px;background:transparent;border:1px solid #3a1010;border-radius:10px;font-size:14px;font-weight:700;color:#6b7a7a;cursor:pointer;font-family:sans-serif">✕ Skip</button>
+      <button id="count-dup-yes" style="flex:2;padding:14px;background:linear-gradient(135deg,#7f1d1d,#450a0a);border:1px solid #ef4444;border-radius:10px;font-size:15px;font-weight:700;color:#fca5a5;cursor:pointer;font-family:sans-serif">✓ Count here anyway</button>
+    </div>
+  </div>
+</div>
+
 <!-- ⚠️ Duplicate SKU modal — body level so position:fixed always works -->
 <div id="dup-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9000;display:none;align-items:center;justify-content:center;padding:20px">
   <div style="background:#1a2020;border:2px solid #f5a623;border-radius:16px;padding:24px 20px;width:100%;max-width:340px;text-align:center;box-shadow:0 0 60px rgba(0,0,0,.8)">
