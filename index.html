@@ -2022,21 +2022,62 @@ function confirmCountLocation() {
   setTimeout(() => startCountLive(), 400);
 }
 
-function endCountSession() {
+async function endCountSession() {
   if (!countSession) return;
   const hasRecs = countSession.records && countSession.records.length;
-  const msg = hasRecs
-    ? `End counting for ${countSession.location}?\n${countSession.records.length} items will be saved to history.`
-    : `No items counted. End session for ${countSession.location} anyway?`;
-  if (!confirm(msg)) return;
+  if (!hasRecs) {
+    if (!confirm(`No items counted. End session for ${countSession.location} anyway?`)) return;
+    // Just save locally
+    const hist = getCountHistory();
+    hist.unshift({ ...countSession, end: formatTimestamp(new Date()) });
+    localStorage.setItem(countHistKey(), JSON.stringify(hist.slice(0, 50)));
+    countSession = null;
+    saveCountSessionLocal();
+    stopCountLive();
+    renderCountPage();
+    toast('Session ended');
+    return;
+  }
+
+  // Ask whether to push to Odoo
+  const pushToOdoo = currentUser && currentUser.odooToken
+    ? confirm(`End counting for ${countSession.location}?\n${countSession.records.length} items counted.\n\nPush inventory counts to Odoo now?`)
+    : false;
+
+  // Save to local history first
   const hist = getCountHistory();
   hist.unshift({ ...countSession, end: formatTimestamp(new Date()) });
   localStorage.setItem(countHistKey(), JSON.stringify(hist.slice(0, 50)));
+
+  const sessionRecords = countSession.records;
+  const sessionLocation = countSession.location;
+
   countSession = null;
   saveCountSessionLocal();
   stopCountLive();
   renderCountPage();
-  toast('Location session ended ✓');
+
+  if (pushToOdoo) {
+    toast('Pushing to Odoo…', 'warn');
+    try {
+      const result = await odooApiCall('/fraimage/scanner/push', 'POST', {
+        location: sessionLocation,
+        records: sessionRecords.map(r => ({ ref: r.ref, qty: r.qty }))
+      });
+      if (result.success) {
+        const notFound = result.not_found && result.not_found.length > 0
+          ? `\n${result.not_found.length} SKUs not found in Odoo: ${result.not_found.slice(0,3).join(', ')}${result.not_found.length>3?'…':''}`
+          : '';
+        toast(`✓ Pushed ${result.lines} items to Odoo${notFound}`, 'success');
+      } else {
+        toast('Odoo push failed: ' + (result.error || 'Unknown error'), 'error');
+      }
+    } catch(e) {
+      toast('Odoo push error: ' + e.message, 'error');
+    }
+  } else {
+    toast('Session saved locally ✓');
+  }
 }
 
 // ── Count Live Scanner ──────────────────────────────
