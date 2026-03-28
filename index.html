@@ -2010,7 +2010,7 @@ function cancelCountStart() {
   document.getElementById('count-location-entry-card').style.display = 'none';
 }
 
-function confirmCountLocation() {
+async function confirmCountLocation() {
   stopLocLive();
   const val = document.getElementById('count-loc-input').value.trim();
   if (!val) { toast('Enter a location name', 'error'); return; }
@@ -2020,6 +2020,30 @@ function confirmCountLocation() {
   renderCountPage();
   // Auto-start camera when session begins
   setTimeout(() => startCountLive(), 400);
+  // Fetch live Odoo stock for this location in background
+  if (currentUser && currentUser.odooToken) {
+    toast('Fetching Odoo stock…', 'warn');
+    try {
+      const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: val });
+      if (result.success && result.stock) {
+        odooStockMap = {};
+        result.stock.forEach(item => {
+          const ref = (item.ref || '').toUpperCase();
+          const loc = (item.location || '').toUpperCase();
+          if (ref) {
+            odooStockMap[ref + '|' + loc] = item.qty;
+            odooStockMap[ref] = item.qty;
+          }
+        });
+        odooStockLoaded = result.stock.length > 0;
+        toast(`✓ Loaded ${result.stock.length} products from Odoo`, 'success');
+      } else {
+        toast('Could not load Odoo stock — counting without reference', 'warn');
+      }
+    } catch(e) {
+      toast('Odoo stock fetch failed: ' + e.message, 'warn');
+    }
+  }
 }
 
 async function endCountSession() {
