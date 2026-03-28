@@ -2038,7 +2038,7 @@ async function confirmCountLocation() {
         odooStockLoaded = result.stock.length > 0;
         toast(`✓ Loaded ${result.stock.length} products from Odoo`, 'success');
       } else {
-        toast('Could not load Odoo stock — counting without reference', 'warn');
+        toast('Odoo stock error: ' + (result.error || JSON.stringify(result).substring(0,80)), 'warn');
       }
     } catch(e) {
       toast('Odoo stock fetch failed: ' + e.message, 'warn');
