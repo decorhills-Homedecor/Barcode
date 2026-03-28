@@ -2046,6 +2046,42 @@ async function confirmCountLocation() {
   }
 }
 
+
+function showCountDupSaveModal(ref, qty, existing, onAdd, onReplace, onSkip) {
+  let panel = document.getElementById('count-dup-save-modal');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'count-dup-save-modal';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:9200;display:flex;align-items:center;justify-content:center;padding:20px';
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `
+    <div style="background:#1a1a0c;border:2px solid #f5a623;border-radius:16px;padding:24px 20px;width:100%;max-width:360px;box-shadow:0 0 60px rgba(245,166,35,.2)">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:900;color:#f5a623;margin-bottom:10px;letter-spacing:1px">⚠ ALREADY COUNTED</div>
+      <div style="font-family:var(--mono);font-size:15px;font-weight:900;color:var(--text);margin-bottom:6px">${escHtml(ref)}</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:16px">
+        Previously counted: <span style="color:#f5a623;font-weight:900">×${existing.qty}</span><br>
+        New qty entered: <span style="color:#fff;font-weight:900">×${qty}</span><br>
+        If added: <span style="color:#22c55e;font-weight:900">×${existing.qty + qty}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button id="cds-add" style="padding:14px;background:linear-gradient(135deg,#0c2a18,#071a0f);border:1px solid #22c55e;border-radius:10px;font-size:15px;font-weight:700;color:#22c55e;cursor:pointer;font-family:sans-serif">
+          + Add to existing (×${existing.qty + qty})
+        </button>
+        <button id="cds-replace" style="padding:12px;background:transparent;border:1px solid #f5a623;border-radius:10px;font-size:14px;font-weight:700;color:#f5a623;cursor:pointer;font-family:sans-serif">
+          ↺ Replace with ×${qty}
+        </button>
+        <button id="cds-skip" style="padding:12px;background:transparent;border:1px solid #3a3a3a;border-radius:10px;font-size:14px;font-weight:700;color:#6b7a7a;cursor:pointer;font-family:sans-serif">
+          ✕ Skip
+        </button>
+      </div>
+    </div>`;
+  panel.style.display = 'flex';
+  document.getElementById('cds-add').onclick     = () => { panel.style.display='none'; onAdd(); };
+  document.getElementById('cds-replace').onclick = () => { panel.style.display='none'; onReplace(); };
+  document.getElementById('cds-skip').onclick    = () => { panel.style.display='none'; onSkip(); };
+}
+
 async function endCountSession() {
   if (!countSession) return;
   const hasRecs = countSession.records && countSession.records.length;
@@ -2469,8 +2505,31 @@ function saveCountEntry() {
   countSession.records = countSession.records || [];
   const existing = countSession.records.find(r => r.ref === ref);
   if (existing) {
-    if (!confirm(`${ref} already counted (qty: ${existing.qty}).\nReplace with ${qty}?`)) return;
-    existing.qty = qty; existing.ts = formatTimestamp(new Date());
+    // Show 3-option modal: Add / Replace / Skip
+    showCountDupSaveModal(ref, qty, existing,
+      // Add more
+      () => {
+        const newQty = existing.qty + qty;
+        existing.qty = newQty; existing.ts = formatTimestamp(new Date());
+        saveCountSessionLocal(); clearCountScanState(); renderCountRecords();
+        playBeep('save'); toast(`✓ ${ref}  ×${newQty} (added ${qty})`);
+        if (countLiveStream) resumeCountScan();
+      },
+      // Replace
+      () => {
+        existing.qty = qty; existing.ts = formatTimestamp(new Date());
+        saveCountSessionLocal(); clearCountScanState(); renderCountRecords();
+        playBeep('save'); toast(`✓ ${ref}  ×${qty} (replaced)`);
+        if (countLiveStream) resumeCountScan();
+      },
+      // Skip
+      () => {
+        clearCountScanState();
+        if (countLiveStream) resumeCountScan();
+        toast('Skipped');
+      }
+    );
+    return;
   } else {
     countSession.records.unshift({ ref, qty, ts: formatTimestamp(new Date()) });
   }
