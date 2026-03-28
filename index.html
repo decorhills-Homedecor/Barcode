@@ -1960,11 +1960,14 @@ function renderCountPage() {
     } else {
       histEl.innerHTML = hist.slice(0, 10).map(h => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
-          <div>
-            <div style="font-weight:700;font-size:13px;color:var(--amber)">\u{1F4CD} ${escHtml(h.location)}</div>
-            <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${h.start} \u00b7 ${(h.records||[]).length} items</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:13px;color:var(--amber)">📍 ${escHtml(h.location)}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${h.start} · ${(h.records||[]).length} items</div>
           </div>
-          <button onclick="reUploadCountHistory('${h.id}')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px">\u2601</button>
+          <button onclick="reUploadCountHistory('${h.id}')" 
+            style="background:linear-gradient(135deg,#0c2a18,#071a0f);border:1px solid #22c55e;color:#22c55e;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:12px;font-weight:700;flex-shrink:0;white-space:nowrap">
+            ☁ Push to Odoo
+          </button>
         </div>`).join('');
     }
   } else {
@@ -2795,12 +2798,32 @@ async function uploadCountSession() {
 async function reUploadCountHistory(id) {
   const h = getCountHistory().find(x => x.id === id);
   if (!h || !h.records || !h.records.length) { toast('No records in that session', 'warn'); return; }
-  toast('Uploading…');
+
+  if (!currentUser || !currentUser.odooToken) {
+    toast('Please log in to push to Odoo', 'error'); return;
+  }
+
+  const confirmed = confirm(
+    `Re-push to Odoo?\n\nLocation: ${h.location}\nItems: ${h.records.length}\nCounted: ${h.start}\n\nThis will update Odoo stock with these quantities.`
+  );
+  if (!confirmed) return;
+
+  toast('Pushing to Odoo…', 'warn');
   try {
-    const filename = await doCountUpload(h.records, h.location);
-    toast('\u2601 Re-uploaded: ' + filename + ' \u2713');
+    const result = await odooApiCall('/fraimage/scanner/push', 'POST', {
+      location: h.location,
+      records: h.records.map(r => ({ ref: r.ref, qty: r.qty }))
+    });
+    if (result.success) {
+      const notFound = result.not_found && result.not_found.length > 0
+        ? ` (${result.not_found.length} SKUs not found)`
+        : '';
+      toast(`✓ Pushed ${result.lines} items to Odoo${notFound}`, 'success');
+    } else {
+      toast('Push failed: ' + (result.error || 'Unknown error'), 'error');
+    }
   } catch(err) {
-    toast('Upload failed: ' + (err.message || err), 'error');
+    toast('Push error: ' + (err.message || err), 'error');
   }
 }
 
