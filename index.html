@@ -2081,12 +2081,28 @@ async function checkStockForCurrentSKU() {
     }
 
     // Filter stock for this SKU across all locations
-    const skuStock = (result.stock || []).filter(item =>
+    // Try exact match first, then partial match
+    const allStock = result.stock || [];
+    let skuStock = allStock.filter(item =>
       (item.ref || '').toUpperCase() === sku
     );
 
+    // If no exact match, try partial match
     if (!skuStock.length) {
-      content.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(sku)} — No stock found in any location</span>`;
+      skuStock = allStock.filter(item =>
+        (item.ref || '').toUpperCase().includes(sku) ||
+        sku.includes((item.ref || '').toUpperCase())
+      );
+    }
+
+    // Debug — show what we searched vs what came back
+    const debugInfo = `Searched: "${sku}" | Total items from Odoo: ${allStock.length}`;
+
+    if (!skuStock.length) {
+      content.innerHTML = `
+        <span style="color:var(--red)">❌ ${escHtml(sku)} — Not found</span>
+        <div style="color:var(--muted);font-size:10px;margin-top:6px">${escHtml(debugInfo)}</div>
+      `;
       return;
     }
 
