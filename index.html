@@ -2321,11 +2321,15 @@ let lastCountRawTime = 0;
 
 // ── Check past sessions for a ref ─────────────────
 function checkPastSessionsForRef(ref) {
-  // Returns array of {location, date, qty} from all past sessions
+  // Only warns for past sessions at the SAME location as current session
   const hist = getCountHistory();
   const matches = [];
+  const currentLocation = (countSession ? countSession.location : '').toUpperCase().trim();
   hist.forEach(session => {
     if (!session.records) return;
+    const sessionLocation = (session.location || '').toUpperCase().trim();
+    // Only check sessions at the same location
+    if (sessionLocation !== currentLocation) return;
     const record = session.records.find(r => r.ref === ref);
     if (record) {
       matches.push({
