@@ -2074,7 +2074,7 @@ async function checkStockForCurrentSKU() {
 
   try {
     // Fetch stock across all locations using a broad search
-    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'WH' });
+    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'ALL' });
     if (!result.success) {
       content.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(result.error || 'Failed') + '</span>';
       return;
