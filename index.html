@@ -490,6 +490,14 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
         <!-- Save button immediately after price — visible without scrolling -->
         <button class="btn btn-green mt-10" id="btn-save" onclick="saveEntry()" disabled
           style="font-size:18px;padding:16px;letter-spacing:1px">✓ &nbsp;SAVE ENTRY</button>
+        <button class="btn btn-ghost mt-10" id="btn-check-stock" onclick="checkStockForCurrentSKU()"
+          style="font-size:14px;padding:12px;letter-spacing:1px;width:100%;border-color:#3b82f6;color:#3b82f6">
+          📦 &nbsp;Check Stock
+        </button>
+        <!-- Stock result panel -->
+        <div id="stock-result-panel" style="display:none;margin-top:10px;background:var(--panel);border:1px solid #3b82f6;border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:13px">
+          <div id="stock-result-content" style="color:var(--text)"></div>
+        </div>
         <div class="field-group mt-10">
           <label>Note <span style="color:var(--muted);font-size:10px;letter-spacing:0">(optional)</span></label>
           <textarea id="note-field" placeholder="e.g. Box damaged…" rows="2"></textarea>
@@ -2049,6 +2057,63 @@ async function confirmCountLocation() {
   }
 }
 
+
+// ── Check Stock for current SKU in sales tab ──────
+async function checkStockForCurrentSKU() {
+  const sku = (document.getElementById('sku-field').value || '').trim().toUpperCase();
+  if (!sku) { toast('Scan an item first', 'warn'); return; }
+
+  if (!currentUser || !currentUser.odooToken) {
+    toast('Please log in to check stock', 'error'); return;
+  }
+
+  const panel   = document.getElementById('stock-result-panel');
+  const content = document.getElementById('stock-result-content');
+  panel.style.display = '';
+  content.innerHTML = '<span style="color:var(--muted)">⏳ Checking stock…</span>';
+
+  try {
+    // Fetch stock across all locations using a broad search
+    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'WH' });
+    if (!result.success) {
+      content.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(result.error || 'Failed') + '</span>';
+      return;
+    }
+
+    // Filter stock for this SKU across all locations
+    const skuStock = (result.stock || []).filter(item =>
+      (item.ref || '').toUpperCase() === sku
+    );
+
+    if (!skuStock.length) {
+      content.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(sku)} — No stock found in any location</span>`;
+      return;
+    }
+
+    // Calculate total
+    const total = skuStock.reduce((sum, item) => sum + (item.qty || 0), 0);
+
+    // Build location breakdown
+    let html = `<div style="color:#3b82f6;font-weight:900;margin-bottom:8px">📦 ${escHtml(sku)}</div>`;
+    html += `<div style="color:var(--green);font-size:15px;font-weight:900;margin-bottom:8px">Total: ${total} units</div>`;
+
+    if (skuStock.length > 1) {
+      html += '<div style="color:var(--muted);font-size:11px;margin-bottom:4px">By location:</div>';
+      skuStock.forEach(item => {
+        const locShort = (item.location || '').split('/').pop();
+        html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--muted)">${escHtml(locShort)}</span>
+          <span style="color:var(--text);font-weight:700">${item.qty} ${item.uom || 'Units'}</span>
+        </div>`;
+      });
+    }
+
+    content.innerHTML = html;
+
+  } catch(e) {
+    content.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(e.message) + '</span>';
+  }
+}
 
 function showCountDupSaveModal(ref, qty, existing, onAdd, onReplace, onSkip) {
   let panel = document.getElementById('count-dup-save-modal');
