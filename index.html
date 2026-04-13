@@ -2073,8 +2073,8 @@ async function checkStockForCurrentSKU() {
   content.innerHTML = '<span style="color:var(--muted)">⏳ Checking stock…</span>';
 
   try {
-    // Fetch stock across all locations using a broad search
-    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'ALL' });
+    // Fetch stock for this specific SKU only — much faster than fetching all
+    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'ALL', ref: sku });
     if (!result.success) {
       content.innerHTML = '<span style="color:var(--red)">Error: ' + escHtml(result.error || 'Failed') + '</span>';
       return;
@@ -2087,7 +2087,7 @@ async function checkStockForCurrentSKU() {
     );
 
     if (!skuStock.length) {
-      content.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(sku)} — No stock found</span>`;
+      content.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(sku)} — No stock found</span><div style="color:var(--muted);font-size:10px;margin-top:4px">Searched: "${escHtml(sku)}" in ${allStock.length} items</div>`;
       return;
     }
 
