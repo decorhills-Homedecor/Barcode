@@ -2080,46 +2080,40 @@ async function checkStockForCurrentSKU() {
       return;
     }
 
-    // Filter stock for this SKU across all locations
-    // Try exact match first, then partial match
+    // Filter stock for this SKU — exact match on ref
     const allStock = result.stock || [];
-    let skuStock = allStock.filter(item =>
+    const skuStock = allStock.filter(item =>
       (item.ref || '').toUpperCase() === sku
     );
 
-    // If no exact match, try partial match
     if (!skuStock.length) {
-      skuStock = allStock.filter(item =>
-        (item.ref || '').toUpperCase().includes(sku) ||
-        sku.includes((item.ref || '').toUpperCase())
-      );
-    }
-
-    // Debug — show what we searched vs what came back
-    const debugInfo = `Searched: "${sku}" | Total items from Odoo: ${allStock.length}`;
-
-    if (!skuStock.length) {
-      content.innerHTML = `
-        <span style="color:var(--red)">❌ ${escHtml(sku)} — Not found</span>
-        <div style="color:var(--muted);font-size:10px;margin-top:6px">${escHtml(debugInfo)}</div>
-      `;
+      content.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(sku)} — No stock found</span>`;
       return;
     }
 
+    // Group by location and sum quantities (handles multiple quants per location)
+    const locMap = {};
+    skuStock.forEach(item => {
+      const locFull = (item.location || '').toUpperCase();
+      if (!locMap[locFull]) locMap[locFull] = { name: item.location, qty: 0, uom: item.uom || 'Units' };
+      locMap[locFull].qty += (item.qty || 0);
+    });
+
     // Calculate total
-    const total = skuStock.reduce((sum, item) => sum + (item.qty || 0), 0);
+    const locations = Object.values(locMap);
+    const total = locations.reduce((sum, l) => sum + l.qty, 0);
 
-    // Build location breakdown
+    // Build display
     let html = `<div style="color:#3b82f6;font-weight:900;margin-bottom:8px">📦 ${escHtml(sku)}</div>`;
-    html += `<div style="color:var(--green);font-size:15px;font-weight:900;margin-bottom:8px">Total: ${total} units</div>`;
+    html += `<div style="color:var(--green);font-size:15px;font-weight:900;margin-bottom:8px">Total: ${total} Units</div>`;
 
-    if (skuStock.length > 1) {
+    if (locations.length > 0) {
       html += '<div style="color:var(--muted);font-size:11px;margin-bottom:4px">By location:</div>';
-      skuStock.forEach(item => {
-        const locShort = (item.location || '').split('/').pop();
-        html += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+      locations.sort((a,b) => b.qty - a.qty).forEach(loc => {
+        const locShort = (loc.name || '').split('/').pop();
+        html += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
           <span style="color:var(--muted)">${escHtml(locShort)}</span>
-          <span style="color:var(--text);font-weight:700">${item.qty} ${item.uom || 'Units'}</span>
+          <span style="color:var(--text);font-weight:700">${loc.qty} ${loc.uom}</span>
         </div>`;
       });
     }
