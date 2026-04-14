@@ -498,6 +498,33 @@ input[type="checkbox"]:checked + .toggle-track::after{transform:translateX(24px)
         <div id="stock-result-panel" style="display:none;margin-top:10px;background:var(--panel);border:1px solid #3b82f6;border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:13px">
           <div id="stock-result-content" style="color:var(--text)"></div>
         </div>
+
+        <!-- Stock Search Panel -->
+        <div style="margin-top:10px">
+          <button onclick="toggleStockSearch()" id="btn-stock-search"
+            style="width:100%;padding:11px;background:transparent;border:1px solid #8b5cf6;border-radius:8px;color:#8b5cf6;font-size:14px;font-weight:700;cursor:pointer;font-family:sans-serif">
+            🔍 &nbsp;Search Stock
+          </button>
+          <div id="stock-search-panel" style="display:none;margin-top:8px;background:var(--panel);border:1px solid #8b5cf6;border-radius:8px;overflow:hidden">
+            <!-- Status bar -->
+            <div id="stock-cache-status" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:#0d0d1a;color:#8b5cf6;border-bottom:1px solid #2a1f4a">
+              ⏳ Loading stock data…
+            </div>
+            <!-- Search input -->
+            <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px">
+              <input id="stock-search-input" type="text" placeholder="Search by name or SKU…"
+                oninput="runStockSearch()"
+                autocomplete="off" autocapitalize="off" spellcheck="false"
+                style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:14px;font-family:var(--mono)">
+              <button onclick="refreshStockCache()" title="Refresh stock data"
+                style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--muted);cursor:pointer;font-size:14px">↻</button>
+            </div>
+            <!-- Results -->
+            <div id="stock-search-results" style="max-height:320px;overflow-y:auto;font-family:var(--mono);font-size:12px;padding:8px 0">
+              <div style="padding:12px;color:var(--muted);text-align:center">Type to search…</div>
+            </div>
+          </div>
+        </div>
         <div class="field-group mt-10">
           <label>Note <span style="color:var(--muted);font-size:10px;letter-spacing:0">(optional)</span></label>
           <textarea id="note-field" placeholder="e.g. Box damaged…" rows="2"></textarea>
@@ -1048,6 +1075,8 @@ function onLoginSuccess(silent=false) {
   showApp();
   // Load pricelist from baked-in data (instant)
   loadPricelistFromCache();
+  // Silently preload all stock in background after login
+  setTimeout(() => preloadAllStock(), 3000);
 }
 
 function logout() {
@@ -2057,6 +2086,135 @@ async function confirmCountLocation() {
   }
 }
 
+
+
+// ═══════════════════════════════════════════════════
+// STOCK CACHE — load all stock once, search locally
+// ═══════════════════════════════════════════════════
+let allStockCache   = [];       // [{ref, name, location, qty, uom}]
+let stockCacheReady = false;
+let stockCacheLoading = false;
+
+async function preloadAllStock(silent = true) {
+  if (stockCacheLoading) return;
+  if (!currentUser || !currentUser.odooToken) return;
+  stockCacheLoading = true;
+  updateStockCacheStatus('⏳ Loading stock data…', '#8b5cf6');
+  try {
+    const result = await odooApiCall('/fraimage/scanner/stock', 'POST', { location: 'ALL' });
+    if (result.success && result.stock) {
+      // Group by ref+location
+      const map = {};
+      result.stock.forEach(item => {
+        const ref = (item.ref || '').trim();
+        const loc = (item.location || '').trim();
+        const key = ref + '|' + loc;
+        if (!ref) return;
+        if (map[key]) { map[key].qty += (item.qty || 0); }
+        else { map[key] = { ref, name: item.name || '', location: loc, qty: item.qty || 0, uom: item.uom || 'Units' }; }
+      });
+      allStockCache   = Object.values(map);
+      stockCacheReady = true;
+      const ts = new Date().toLocaleTimeString('en-AE', { hour: '2-digit', minute: '2-digit' });
+      updateStockCacheStatus(`✓ ${allStockCache.length} products loaded · Updated ${ts}`, '#22c55e');
+      if (!silent) toast(`✓ Stock data loaded — ${allStockCache.length} products`, 'success');
+    } else {
+      updateStockCacheStatus('⚠ Could not load stock data', '#f59e0b');
+    }
+  } catch(e) {
+    updateStockCacheStatus('✗ Load failed: ' + e.message, '#ef4444');
+  }
+  stockCacheLoading = false;
+}
+
+function updateStockCacheStatus(msg, color) {
+  const el = document.getElementById('stock-cache-status');
+  if (el) { el.textContent = msg; el.style.color = color || '#8b5cf6'; }
+}
+
+async function refreshStockCache() {
+  stockCacheReady   = false;
+  stockCacheLoading = false;
+  allStockCache     = [];
+  await preloadAllStock(false);
+  runStockSearch();
+}
+
+function toggleStockSearch() {
+  const panel = document.getElementById('stock-search-panel');
+  const isHidden = panel.style.display === 'none';
+  panel.style.display = isHidden ? '' : 'none';
+  if (isHidden) {
+    // Start loading if not ready
+    if (!stockCacheReady && !stockCacheLoading) preloadAllStock(true);
+    setTimeout(() => document.getElementById('stock-search-input').focus(), 150);
+  }
+}
+
+function runStockSearch() {
+  const query  = (document.getElementById('stock-search-input').value || '').trim().toUpperCase();
+  const resEl  = document.getElementById('stock-search-results');
+
+  if (!stockCacheReady) {
+    resEl.innerHTML = '<div style="padding:12px;color:var(--muted);text-align:center">⏳ Still loading stock data…</div>';
+    return;
+  }
+
+  if (query.length < 2) {
+    resEl.innerHTML = '<div style="padding:12px;color:var(--muted);text-align:center">Type at least 2 characters…</div>';
+    return;
+  }
+
+  // Search by ref OR name
+  const matched = allStockCache.filter(item =>
+    (item.ref  || '').toUpperCase().includes(query) ||
+    (item.name || '').toUpperCase().includes(query)
+  );
+
+  if (!matched.length) {
+    resEl.innerHTML = `<div style="padding:12px;color:var(--muted);text-align:center">No products found for "${escHtml(query)}"</div>`;
+    return;
+  }
+
+  // Group by ref → sum across locations
+  const grouped = {};
+  matched.forEach(item => {
+    const ref = item.ref;
+    if (!grouped[ref]) grouped[ref] = { ref, name: item.name, locations: [], total: 0 };
+    grouped[ref].locations.push({ loc: item.location, qty: item.qty, uom: item.uom });
+    grouped[ref].total += item.qty;
+  });
+
+  const groups = Object.values(grouped).sort((a, b) => b.total - a.total).slice(0, 30);
+
+  let html = `<div style="padding:6px 12px;color:var(--muted);font-size:10px">${groups.length} result${groups.length!==1?'s':''} for "${escHtml(query)}"</div>`;
+
+  groups.forEach(g => {
+    const locRows = g.locations
+      .sort((a,b) => b.qty - a.qty)
+      .map(l => {
+        const locShort = (l.loc || '').split('/').pop();
+        return `<div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span style="color:var(--muted)">${escHtml(locShort)}</span>
+          <span style="color:var(--text)">${l.qty} ${l.uom}</span>
+        </div>`;
+      }).join('');
+
+    html += `
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <div>
+            <span style="color:#8b5cf6;font-weight:900;font-size:12px">${escHtml(g.ref)}</span>
+            <span style="color:var(--muted);font-size:10px;margin-left:6px">${escHtml(g.name)}</span>
+          </div>
+          <span style="color:var(--green);font-weight:900;font-size:13px;white-space:nowrap;margin-left:8px">${g.total} Units</span>
+        </div>
+        ${g.locations.length > 1 ? `<div style="padding-left:4px">${locRows}</div>` : ''}
+      </div>`;
+  });
+
+  resEl.innerHTML = html;
+}
 
 // ── Check Stock for current SKU in sales tab ──────
 async function checkStockForCurrentSKU() {
